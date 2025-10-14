@@ -51,10 +51,16 @@ export default function NavgraphRenderer() {
   }, []);
 
   useEffect(() => {
-    pathfinder.load(navigationData);
+    const asyncLoad = async () => {
+      await pathfinder.load(navigationData);
+      //kickstart the first pathfinding
+      setStart({ ...start });
+    };
+    asyncLoad();
   }, [navigationData, pathfinder]);
 
   useEffect(() => {
+    if (!pathfinder.loaded) return;
     const path = pathfinder.findPath(start, end);
     setPath(path);
   }, [pathfinder, start, end]);
