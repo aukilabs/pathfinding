@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@plugin "tailwindcss-react-aria-components";
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+#root {
+  height: 100%;
+}
