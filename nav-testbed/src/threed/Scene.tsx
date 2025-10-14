@@ -21,12 +21,6 @@ export default function Scene() {
         followCamera={false}
       />
 
-      {/* Simple test cube */}
-      <mesh position={[0, 1, 0]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="red" />
-      </mesh>
-
       {/* Add NavgraphRenderer back */}
       <Suspense fallback={null}>
         <NavgraphRenderer />
