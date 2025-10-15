@@ -1,12 +1,13 @@
 import { init, NavMesh, NavMeshQuery } from "recast-navigation";
 import { threeToSoloNavMesh } from "@recast-navigation/three";
 import * as THREE from "three";
-import { NavigationData } from "./NavigationData";
+import { Area, NavMap as NavigationGraph } from "./NavgraphTypes";
 import * as geometry from "./GeometryUtils";
 import * as mapUtils from "./GraphUtils";
 import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
+import earcut from "earcut";
 
 export type NavOptions = {
   maxDistance?: number;
@@ -14,37 +15,40 @@ export type NavOptions = {
 };
 
 export class Pathfinder {
-  private map: NavigationData;
-  private config: NavOptions;
-  private adjacencyList: Map<string, string[]> = new Map();
-  private edgeWeights: Map<string, number> = new Map();
-  private precomputedAreaPaths: Map<string, THREE.Vector3Like[]> = new Map();
+  private _map: NavigationGraph;
+  private _config: NavOptions;
+  private _adjacencyList: Map<string, string[]> = new Map();
+  private _edgeWeights: Map<string, number> = new Map();
+  private _precomputedAreaPaths: Map<string, THREE.Vector3Like[]> = new Map();
 
-  private areaNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areas
-  private areaNavMeshQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areas
+  private _areaMeshes: Record<string, THREE.Mesh> = {};
+  private _areaNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areas
+  private _areaNavMeshQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areas
 
-  private legacyNavMesh: NavMesh | null = null;
-  private legacyNavMeshQuery: NavMeshQuery | null = null;
+  private _legacyMeshes: THREE.Mesh[] = [];
+  private _legacyNavMesh: NavMesh | null = null;
+  private _legacyNavMeshQuery: NavMeshQuery | null = null;
 
   // Store legacy portal points separately (don't mutate original map)
-  private legacyPortalPoints: Map<string, THREE.Vector3Like> = new Map();
+  private _legacyPortalPoints: Map<string, THREE.Vector3Like> = new Map();
 
   constructor(config: NavOptions = {}) {
-    this.config = {
+    this._config = {
       ...config,
     };
-    this.map = new NavigationData(
-      {
-        points: {},
-        edges: {},
-        areas: {},
-      },
-      []
-    );
+    this._map = {
+      points: {},
+      edges: {},
+      areas: {},
+    };
   }
 
   get navmeshes() {
-    return this.areaNavMeshes;
+    return this._areaNavMeshes;
+  }
+
+  get areaMeshes() {
+    return this._areaMeshes;
   }
 
   private isLoaded = false;
@@ -53,11 +57,11 @@ export class Pathfinder {
   }
 
   get adjacencyListForVisualization() {
-    return this.adjacencyList;
+    return this._adjacencyList;
   }
 
   get preComputedAreaPaths() {
-    return this.precomputedAreaPaths;
+    return this._precomputedAreaPaths;
   }
 
   // Getter that combines original points with legacy portal points
@@ -65,31 +69,34 @@ export class Pathfinder {
     pointId: string
   ): THREE.Vector3Like | null {
     // First check original map points
-    if (this.map?.points[pointId]) {
-      return this.map.points[pointId];
+    if (this._map?.points[pointId]) {
+      return this._map.points[pointId];
     }
 
     // Then check legacy portal points
-    return this.legacyPortalPoints.get(pointId) || null;
+    return this._legacyPortalPoints.get(pointId) || null;
   }
 
   // Getter for all points (original + legacy portals)
   private getAllPoints(): Record<string, THREE.Vector3Like> {
-    const allPoints = { ...this.map?.points };
+    const allPoints = { ...this._map?.points };
 
     // Add legacy portal points
-    this.legacyPortalPoints.forEach((point, pointId) => {
+    this._legacyPortalPoints.forEach((point, pointId) => {
       allPoints[pointId] = point;
     });
 
     return allPoints;
   }
 
-  async load(map: NavigationData) {
+  async load(map: NavigationGraph, legacyNavmesh: THREE.Mesh[]) {
     this.isLoaded = false;
     this.cleanUp();
 
-    this.map = map;
+    this._map = map;
+    this._legacyMeshes = legacyNavmesh;
+
+    this.initializeMap();
 
     this.buildAdjacencyList();
     await this.initializeAreaNavMeshes();
@@ -99,37 +106,161 @@ export class Pathfinder {
     this.isLoaded = true;
   }
 
+  private initializeMap() {
+    for (const [areaId, area] of Object.entries(this._map.areas)) {
+      const polygon = this.buildPolygonFromArea(area);
+      if (!polygon) {
+        console.error("failed to build polygon for area");
+        continue;
+      }
+
+      const expandedPolygon = geometry.expandPolygon(polygon, 0.01);
+      const triangles = this.triangulateArea(area, expandedPolygon);
+      if (!triangles) {
+        console.error("failed to triangulate area");
+        continue;
+      }
+      const mesh = this.createMeshForArea(areaId, triangles);
+      if (!mesh) {
+        console.error("failed to create mesh for area");
+        continue;
+      }
+      this._areaMeshes[areaId] = mesh;
+    }
+  }
+
+  private buildPolygonFromArea(area: Area): THREE.Vector3Like[] | null {
+    if (!this._map) return null;
+
+    // Find a starting edge and build the polygon
+    const polygon: THREE.Vector3Like[] = area.points.map((pointId) => {
+      return this._map.points[pointId];
+    });
+
+    return polygon.length > 2 ? polygon : null;
+  }
+
+  private triangulateArea(
+    area: Area,
+    polygon: THREE.Vector3Like[]
+  ): THREE.Vector3Like[][] | null {
+    if (!this._map) return null;
+
+    if (!polygon || polygon.length < 3) {
+      console.log("Invalid polygon for area:", area.points);
+      return null;
+    }
+
+    // Convert polygon to 2D for earcut (project to XZ plane)
+    const vertices2D: number[] = [];
+    const vertices3D: THREE.Vector3Like[] = [];
+
+    polygon.forEach((vertex, index) => {
+      vertices2D.push(vertex.x, vertex.z); // X and Z coordinates
+      vertices3D.push(vertex);
+    });
+
+    // Triangulate using earcut
+    const triangles = earcut(vertices2D);
+
+    if (!triangles || triangles.length === 0) {
+      console.log("Earcut failed or returned empty result");
+      return null;
+    }
+
+    // Convert back to 3D triangles and ensure counter-clockwise winding order
+    const result: THREE.Vector3Like[][] = [];
+    for (let i = 0; i < triangles.length; i += 3) {
+      const triangle: THREE.Vector3Like[] = [];
+
+      // For counter-clockwise winding order (facing upward), we need to reverse the order
+      // earcut returns clockwise triangles, so we reverse them
+      for (let j = 2; j >= 0; j--) {
+        const vertexIndex = triangles[i + j];
+        triangle.push(vertices3D[vertexIndex]);
+      }
+
+      result.push(triangle);
+    }
+
+    return result;
+  }
+
+  private createMeshForArea(
+    areaId: string,
+    triangles: THREE.Vector3Like[][]
+  ): THREE.Mesh | null {
+    const area = this._map.areas[areaId];
+    if (!area) {
+      console.log("Area not found:", areaId);
+      return null;
+    }
+    if (!triangles || triangles.length === 0) {
+      console.log("Failed to triangulate area:", areaId);
+      return null;
+    }
+
+    // Create geometry from triangles
+    const geometry = new THREE.BufferGeometry();
+    const vertices: number[] = [];
+    const indices: number[] = [];
+
+    triangles.forEach((triangle, triangleIndex) => {
+      triangle.forEach((vertex) => {
+        vertices.push(vertex.x, vertex.y ?? 0, vertex.z);
+      });
+      // Add indices for this triangle
+      const baseIndex = triangleIndex * 3;
+      indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
+    });
+
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+    mesh.name = areaId;
+    return mesh;
+  }
+
   private cleanUp() {
-    this.adjacencyList.clear();
-    this.edgeWeights.clear();
-    this.precomputedAreaPaths.clear();
-    this.legacyPortalPoints.clear();
-    this.legacyNavMesh = null;
-    this.legacyNavMeshQuery = null;
-    this.areaNavMeshes.clear();
-    this.areaNavMeshQueries.clear();
+    this._adjacencyList.clear();
+    this._edgeWeights.clear();
+    this._precomputedAreaPaths.clear();
+    this._legacyPortalPoints.clear();
+    this._legacyNavMesh?.destroy();
+    this._legacyNavMesh = null;
+    this._legacyNavMeshQuery?.destroy();
+    this._legacyNavMeshQuery = null;
+    this._areaNavMeshes.forEach((navMesh) => navMesh.destroy());
+    this._areaNavMeshes.clear();
+    this._areaNavMeshQueries.forEach((query) => query.destroy());
+    this._areaNavMeshQueries.clear();
   }
 
   setConfig(config: NavOptions) {
-    this.config = { ...this.config, ...config };
+    this._config = { ...this._config, ...config };
   }
 
   private buildAdjacencyList() {
-    if (!this.map) return;
+    if (!this._map) return;
 
     // Initialize adjacency list for original points only
-    Object.keys(this.map.points).forEach((pointId) => {
-      this.adjacencyList.set(pointId, []);
+    Object.keys(this._map.points).forEach((pointId) => {
+      this._adjacencyList.set(pointId, []);
     });
 
     // Build connections and calculate weights
-    Object.entries(this.map.edges).forEach(([edgeId, edge]) => {
+    Object.entries(this._map.edges).forEach(([edgeId, edge]) => {
       const fromPoint = this.getMapPointOrLegacyConnection(edge.from)!;
       const toPoint = this.getMapPointOrLegacyConnection(edge.to)!;
 
       if (fromPoint && toPoint) {
         // Check if this edge belongs to any area
-        const edgeAreas = mapUtils.getAreasContainingEdge(this.map, edgeId);
+        const edgeAreas = mapUtils.getAreasContainingEdge(this._map, edgeId);
         const isAreaEdge = edgeAreas.length > 0;
 
         // Skip edges that belong to areas - they'll be handled by exit-to-exit connections
@@ -142,28 +273,28 @@ export class Pathfinder {
 
         if (!edge.dir) {
           // Two-way edge - add bidirectional connections
-          this.adjacencyList.get(edge.from)!.push(edge.to);
-          this.adjacencyList.get(edge.to)!.push(edge.from);
+          this._adjacencyList.get(edge.from)!.push(edge.to);
+          this._adjacencyList.get(edge.to)!.push(edge.from);
 
-          this.edgeWeights.set(
+          this._edgeWeights.set(
             constants.createEdgeWeightKey(edge.from, edge.to),
             weight
           );
-          this.edgeWeights.set(
+          this._edgeWeights.set(
             constants.createEdgeWeightKey(edge.to, edge.from),
             weight
           );
         } else if (edge.dir === 1) {
           // One-way edge - only add from -> to connection
-          this.adjacencyList.get(edge.from)!.push(edge.to);
-          this.edgeWeights.set(
+          this._adjacencyList.get(edge.from)!.push(edge.to);
+          this._edgeWeights.set(
             constants.createEdgeWeightKey(edge.from, edge.to),
             weight
           );
         } else if (edge.dir === -1) {
           // One-way-reverse edge - only add to -> from connection
-          this.adjacencyList.get(edge.to)!.push(edge.from);
-          this.edgeWeights.set(
+          this._adjacencyList.get(edge.to)!.push(edge.from);
+          this._edgeWeights.set(
             constants.createEdgeWeightKey(edge.to, edge.from),
             weight
           );
@@ -172,8 +303,8 @@ export class Pathfinder {
     });
 
     // Add area-based exit-to-exit connections
-    Object.entries(this.map.areas).forEach(([areaId, area]) => {
-      const exitPoints = mapUtils.findExitPoints(this.map, areaId);
+    Object.entries(this._map.areas).forEach(([areaId, area]) => {
+      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
 
       // Connect all exit points within the same area
       for (let i = 0; i < exitPoints.length; i++) {
@@ -183,8 +314,8 @@ export class Pathfinder {
             const toId = exitPoints[j];
 
             // Add bidirectional connection
-            this.adjacencyList.get(fromId)!.push(toId);
-            this.adjacencyList.get(toId)!.push(fromId);
+            this._adjacencyList.get(fromId)!.push(toId);
+            this._adjacencyList.get(toId)!.push(fromId);
 
             // Weight will be set by initializeAreaDistances
           }
@@ -197,7 +328,7 @@ export class Pathfinder {
     from: THREE.Vector3Like,
     to: THREE.Vector3Like
   ): THREE.Vector3Like[] | null {
-    if (!this.map) {
+    if (!this._map) {
       return null;
     }
 
@@ -207,11 +338,11 @@ export class Pathfinder {
 
     // Find nearest positions on legacy NavMesh
     const fromLegacyResult = recastUtils.getNearestPositionOnLegacyNavMesh(
-      this.legacyNavMeshQuery,
+      this._legacyNavMeshQuery,
       from
     );
     const toLegacyResult = recastUtils.getNearestPositionOnLegacyNavMesh(
-      this.legacyNavMeshQuery,
+      this._legacyNavMeshQuery,
       to
     );
 
@@ -219,8 +350,8 @@ export class Pathfinder {
     // check if direct NavMesh path is shorter than portal-based path
     if (fromLegacyResult && toLegacyResult) {
       const directNavMeshPath = pathfinding.tryDirectLegacyNavMeshPath(
-        this.legacyNavMeshQuery,
-        this.legacyPortalPoints,
+        this._legacyNavMeshQuery,
+        this._legacyPortalPoints,
         from,
         to
       );
@@ -234,13 +365,13 @@ export class Pathfinder {
 
     // Choose the closest option for each endpoint
     const fromResult = pathfinding.chooseClosestResult(
-      this.legacyPortalPoints,
+      this._legacyPortalPoints,
       fromEdgeResult,
       fromLegacyResult,
       from
     );
     const toResult = pathfinding.chooseClosestResult(
-      this.legacyPortalPoints,
+      this._legacyPortalPoints,
       toEdgeResult,
       toLegacyResult,
       to
@@ -252,8 +383,8 @@ export class Pathfinder {
 
     // Check if points are within threshold
     if (
-      fromResult.distance > (this.config.maxOffGraphDistance ?? Infinity) ||
-      toResult.distance > (this.config.maxOffGraphDistance ?? Infinity)
+      fromResult.distance > (this._config.maxOffGraphDistance ?? Infinity) ||
+      toResult.distance > (this._config.maxOffGraphDistance ?? Infinity)
     ) {
       console.log("Points are too far from navigation surface");
       return null;
@@ -340,7 +471,7 @@ export class Pathfinder {
           nextNode !== constants.FROM_INTERMEDIATE &&
           nextNode !== constants.TO_INTERMEDIATE
         ) {
-          const precomputedPath = this.precomputedAreaPaths.get(
+          const precomputedPath = this._precomputedAreaPaths.get(
             `${currentNode}-${nextNode}`
           ); // Use tempPaths
 
@@ -384,7 +515,7 @@ export class Pathfinder {
     const tempPaths = new Map<string, THREE.Vector3Like[]>(); // Local temporary storage
 
     // Copy existing connections
-    this.adjacencyList.forEach((neighbors, nodeId) => {
+    this._adjacencyList.forEach((neighbors, nodeId) => {
       tempAdjacencyList.set(nodeId, [...neighbors]);
     });
 
@@ -416,15 +547,15 @@ export class Pathfinder {
 
     const fromEdge = fromIsLegacyEdge
       ? null
-      : this.map!.edges[fromResult.edgeId];
-    const toEdge = toIsLegacyEdge ? null : this.map.edges[toResult.edgeId];
+      : this._map!.edges[fromResult.edgeId];
+    const toEdge = toIsLegacyEdge ? null : this._map.edges[toResult.edgeId];
 
     const fromEdgeAreas = fromIsLegacyEdge
       ? []
-      : mapUtils.getAreasContainingEdge(this.map, fromResult.edgeId);
+      : mapUtils.getAreasContainingEdge(this._map, fromResult.edgeId);
     const toEdgeAreas = toIsLegacyEdge
       ? []
-      : mapUtils.getAreasContainingEdge(this.map, toResult.edgeId);
+      : mapUtils.getAreasContainingEdge(this._map, toResult.edgeId);
 
     const fromIsAreaEdge = fromEdgeAreas.length > 0;
     const toIsAreaEdge = toEdgeAreas.length > 0;
@@ -432,13 +563,13 @@ export class Pathfinder {
     // Handle legacy NavMesh edges
     if (fromIsLegacyEdge) {
       console.log("Handling legacy NavMesh edge for 'from'");
-      const legacyNavMeshQuery = this.legacyNavMeshQuery;
+      const legacyNavMeshQuery = this._legacyNavMeshQuery;
       if (legacyNavMeshQuery) {
         // Find all virtual portal points connected to legacy NavMesh
         const connectedPortals: string[] = [];
 
         // Connect to all legacy portal points
-        this.adjacencyList.forEach((neighbors, nodeId) => {
+        this._adjacencyList.forEach((neighbors, nodeId) => {
           if (constants.isLegacyPortal(nodeId)) {
             // Check if this portal is reachable from the from position
             try {
@@ -449,7 +580,6 @@ export class Pathfinder {
 
               const path = legacyNavMeshQuery.computePath(fromV3, portalV3);
               if (path.success && path.path) {
-                console.log(`Successfully connected to portal ${nodeId}`);
                 tempPaths.set(
                   constants.createFromIntermediatePathKey(nodeId),
                   path.path
@@ -486,8 +616,8 @@ export class Pathfinder {
     // Handle area edges by computing NavMesh paths to nearest exit points
     else if (fromIsAreaEdge) {
       const areaId = fromEdgeAreas[0];
-      const exitPoints = mapUtils.findExitPoints(this.map, areaId);
-      const navMeshQuery = this.areaNavMeshQueries.get(areaId);
+      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+      const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
       if (exitPoints.length > 0 && navMeshQuery) {
         const connectedExits: string[] = [];
@@ -571,13 +701,13 @@ export class Pathfinder {
 
     // Handle legacy NavMesh edges for 'to'
     if (toIsLegacyEdge) {
-      const legacyNavMeshQuery = this.legacyNavMeshQuery;
+      const legacyNavMeshQuery = this._legacyNavMeshQuery;
       if (legacyNavMeshQuery) {
         // Find all virtual portal points connected to legacy NavMesh
         const connectedPortals: string[] = [];
 
         // Connect to all legacy portal points
-        this.adjacencyList.forEach((neighbors, nodeId) => {
+        this._adjacencyList.forEach((neighbors, nodeId) => {
           if (constants.isLegacyPortal(nodeId)) {
             // Check if this portal is reachable from the to position
             try {
@@ -619,8 +749,8 @@ export class Pathfinder {
     // Handle area edges for 'to'
     else if (toIsAreaEdge) {
       const areaId = toEdgeAreas[0];
-      const exitPoints = mapUtils.findExitPoints(this.map, areaId);
-      const navMeshQuery = this.areaNavMeshQueries.get(areaId);
+      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+      const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
       if (exitPoints.length > 0 && navMeshQuery) {
         const connectedExits: string[] = [];
@@ -726,7 +856,7 @@ export class Pathfinder {
         if (visited.has(neighbor)) continue;
 
         const edgeWeight = mapUtils.getEdgeWeight(
-          this.edgeWeights,
+          this._edgeWeights,
           current,
           neighbor
         );
@@ -750,7 +880,7 @@ export class Pathfinder {
     toPointId: string;
     distance: number;
   } | null {
-    if (!this.map) return null;
+    if (!this._map) return null;
 
     let nearestPosition: THREE.Vector3Like | null = null;
     let nearestEdgeId: string | null = null;
@@ -759,7 +889,7 @@ export class Pathfinder {
     let minDistance = Infinity;
 
     // Check all edges
-    Object.entries(this.map.edges).forEach(([edgeId, edge]) => {
+    Object.entries(this._map.edges).forEach(([edgeId, edge]) => {
       const fromPoint = this.getMapPointOrLegacyConnection(edge.from)!;
       const toPoint = this.getMapPointOrLegacyConnection(edge.to)!;
 
@@ -794,14 +924,14 @@ export class Pathfinder {
   }
 
   async initializeAreaNavMeshes(): Promise<void> {
-    this.areaNavMeshes.clear();
-    this.areaNavMeshQueries.clear();
-    if (!this.map) return;
+    this._areaNavMeshes.clear();
+    this._areaNavMeshQueries.clear();
+    if (!this._map) return;
 
     await init();
 
-    for (const areaId of Object.keys(this.map.meshes)) {
-      const mesh = this.map.meshes[areaId];
+    for (const areaId of Object.keys(this._areaMeshes)) {
+      const mesh = this._areaMeshes[areaId];
 
       if (mesh) {
         try {
@@ -820,10 +950,10 @@ export class Pathfinder {
             console.error("Failed to create nav mesh for area:", areaId);
             continue;
           }
-          this.areaNavMeshes.set(areaId, nmResult.navMesh);
+          this._areaNavMeshes.set(areaId, nmResult.navMesh);
 
           const query = new NavMeshQuery(nmResult.navMesh);
-          this.areaNavMeshQueries.set(areaId, query);
+          this._areaNavMeshQueries.set(areaId, query);
         } catch (error) {
           console.error("Failed to create zone for area:", areaId, error);
         }
@@ -832,11 +962,11 @@ export class Pathfinder {
   }
 
   private async initializeLegacyAreaNavMeshes(): Promise<void> {
-    if (!this.map) return;
+    if (!this._map) return;
 
     await init();
 
-    const legacyMeshes = this.map.legacyNavmesh;
+    const legacyMeshes = this._legacyMeshes;
     if (legacyMeshes.length === 0) {
       console.log(
         "No legacy navmeshes found, skipping legacy NavMesh creation"
@@ -871,18 +1001,18 @@ export class Pathfinder {
 
     console.log("Successfully created legacy NavMesh");
 
-    this.legacyNavMesh = nmResult.navMesh;
-    this.legacyNavMeshQuery = new NavMeshQuery(nmResult.navMesh);
+    this._legacyNavMesh = nmResult.navMesh;
+    this._legacyNavMeshQuery = new NavMeshQuery(nmResult.navMesh);
   }
 
   private async initializeLegacyAreaConnections(): Promise<void> {
     console.log("Initializing legacy area connections...");
-    if (!this.map) {
+    if (!this._map) {
       console.log("No map available");
       return;
     }
 
-    const lnmQuery = this.legacyNavMeshQuery;
+    const lnmQuery = this._legacyNavMeshQuery;
     if (!lnmQuery) {
       console.log("No legacy NavMesh query available");
       return;
@@ -895,10 +1025,8 @@ export class Pathfinder {
     // Find all existing graph points that intersect with the legacy NavMesh
     const intersectingPoints: string[] = [];
 
-    Object.entries(this.map.points).forEach(([pointId, point]) => {
-      console.log(`Checking point ${pointId} at`, point);
+    Object.entries(this._map.points).forEach(([pointId, point]) => {
       if (recastUtils.isPointOnLegacyNavMesh(point, lnmQuery)) {
-        console.log(`Point ${pointId} intersects with legacy NavMesh`);
         intersectingPoints.push(pointId);
       }
     });
@@ -912,7 +1040,7 @@ export class Pathfinder {
     const virtualPoints: Map<string, THREE.Vector3Like> = new Map();
 
     for (const pointId of intersectingPoints) {
-      const point = this.map.points[pointId];
+      const point = this._map.points[pointId];
       const virtualPointId = constants.createLegacyPortalId(pointId);
 
       // Project point onto legacy NavMesh surface
@@ -920,7 +1048,7 @@ export class Pathfinder {
         point,
         lnmQuery
       );
-      this.legacyPortalPoints.set(virtualPointId, projectedPoint);
+      this._legacyPortalPoints.set(virtualPointId, projectedPoint);
 
       // Add edge from original point to virtual point
       this.addLegacyConnection(pointId, virtualPointId, point, projectedPoint);
@@ -928,7 +1056,7 @@ export class Pathfinder {
 
     // Connect virtual points within the legacy NavMesh
     await this.connectVirtualPointsWithinLegacyNavMesh(
-      this.legacyPortalPoints,
+      this._legacyPortalPoints,
       lnmQuery
     );
   }
@@ -939,27 +1067,20 @@ export class Pathfinder {
     fromPoint: THREE.Vector3Like,
     toPoint: THREE.Vector3Like
   ): void {
-    console.log(
-      "Adding legacy connection:",
-      fromPointId,
-      toPointId,
-      fromPoint,
-      toPoint
-    );
     // Add bidirectional connection
-    this.adjacencyList.get(fromPointId)!.push(toPointId);
+    this._adjacencyList.get(fromPointId)!.push(toPointId);
 
     // Initialize adjacency list for virtual point
-    this.adjacencyList.set(toPointId, []);
-    this.adjacencyList.get(toPointId)!.push(fromPointId);
+    this._adjacencyList.set(toPointId, []);
+    this._adjacencyList.get(toPointId)!.push(fromPointId);
 
     // Calculate and store edge weight
     const weight = geometry.calculateDistance(fromPoint, toPoint);
-    this.edgeWeights.set(
+    this._edgeWeights.set(
       constants.createEdgeWeightKey(fromPointId, toPointId),
       weight
     );
-    this.edgeWeights.set(
+    this._edgeWeights.set(
       constants.createEdgeWeightKey(toPointId, fromPointId),
       weight
     );
@@ -989,25 +1110,25 @@ export class Pathfinder {
 
           if (path.success && path.path) {
             // Add bidirectional connection
-            this.adjacencyList.get(fromId)!.push(toId);
-            this.adjacencyList.get(toId)!.push(fromId);
+            this._adjacencyList.get(fromId)!.push(toId);
+            this._adjacencyList.get(toId)!.push(fromId);
 
             // Store precomputed path and distance
             const distance = geometry.calculatePathLength(path.path);
-            this.edgeWeights.set(
+            this._edgeWeights.set(
               constants.createEdgeWeightKey(fromId, toId),
               distance
             );
-            this.edgeWeights.set(
+            this._edgeWeights.set(
               constants.createEdgeWeightKey(toId, fromId),
               distance
             );
 
-            this.precomputedAreaPaths.set(
+            this._precomputedAreaPaths.set(
               constants.createEdgeWeightKey(fromId, toId),
               path.path
             );
-            this.precomputedAreaPaths.set(
+            this._precomputedAreaPaths.set(
               constants.createEdgeWeightKey(toId, fromId),
               path.path.toReversed()
             );
@@ -1023,13 +1144,13 @@ export class Pathfinder {
   }
 
   private async initializeAreaDistances(): Promise<void> {
-    if (!this.map) return;
+    if (!this._map) return;
 
-    for (const [areaId, area] of Object.entries(this.map.areas)) {
-      const navMesh = this.areaNavMeshQueries.get(areaId);
+    for (const [areaId, area] of Object.entries(this._map.areas)) {
+      const navMesh = this._areaNavMeshQueries.get(areaId);
       if (!navMesh) continue;
 
-      const exitPoints = mapUtils.findExitPoints(this.map, areaId);
+      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
 
       // Pre-compute distances between all pairs of exit points
       for (let i = 0; i < exitPoints.length; i++) {
@@ -1049,19 +1170,19 @@ export class Pathfinder {
               const distance = geometry.calculatePathLength(path.path);
 
               // Store both directions
-              this.edgeWeights.set(
+              this._edgeWeights.set(
                 constants.createEdgeWeightKey(fromPointId, toPointId),
                 distance
               );
-              this.edgeWeights.set(
+              this._edgeWeights.set(
                 constants.createEdgeWeightKey(toPointId, fromPointId),
                 distance
               );
-              this.precomputedAreaPaths.set(
+              this._precomputedAreaPaths.set(
                 constants.createEdgeWeightKey(fromPointId, toPointId),
                 path.path
               );
-              this.precomputedAreaPaths.set(
+              this._precomputedAreaPaths.set(
                 constants.createEdgeWeightKey(toPointId, fromPointId),
                 path.path.toReversed()
               );

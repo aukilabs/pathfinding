@@ -1,4 +1,4 @@
-import { NavMap } from "./NavigationData";
+import { NavMap } from "./NavgraphTypes";
 
 export const TestNavData: NavMap = {
   points: {

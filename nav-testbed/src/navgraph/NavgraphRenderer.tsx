@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { DragControls, Line, Text, Wireframe } from "@react-three/drei";
 import { Pathfinder } from "./Pathfinder";
-import { NavigationData, NavMap } from "./NavigationData";
 import { NavMeshHelper } from "@recast-navigation/three";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
-import { TestNavData } from "./TestNavData";
+import { TestNavData } from "./TestNavGraph";
 import * as constants from "./Constants";
+import { createMeshes } from "./TestLegacyNavmesh";
 
 //type Floors = Record<string, { y: number; name: string }>;
 
@@ -32,6 +32,9 @@ export default function NavgraphRenderer() {
   const startRef = useRef<THREE.Object3D>(null);
   const endRef = useRef<THREE.Object3D>(null);
 
+  const legacyNavmesh = useMemo(createMeshes, []);
+  const navMap = useMemo(() => TestNavData, []);
+
   // Initialize refs with initial positions
   useEffect(() => {
     if (startRef.current) {
@@ -42,22 +45,19 @@ export default function NavgraphRenderer() {
     }
   }, []);
 
-  const navigationData = useMemo(() => {
-    return new NavigationData(TestNavData, []);
-  }, [TestNavData]);
-
   const pathfinder = useMemo(() => {
     return new Pathfinder({ maxOffGraphDistance: 10 });
   }, []);
 
   useEffect(() => {
+    console.log("Loading pathfinder");
     const asyncLoad = async () => {
-      await pathfinder.load(navigationData);
+      await pathfinder.load(TestNavData, legacyNavmesh);
       //kickstart the first pathfinding
       setStart({ ...start });
     };
     asyncLoad();
-  }, [navigationData, pathfinder]);
+  }, [pathfinder]);
 
   useEffect(() => {
     if (!pathfinder.loaded) return;
@@ -125,7 +125,7 @@ export default function NavgraphRenderer() {
       </group>
       {showPoints && (
         <group name="points">
-          {Object.entries(navigationData.points).map(([pointId, point]) => (
+          {Object.entries(navMap.points).map(([pointId, point]) => (
             <mesh
               key={pointId}
               position={[point.x, point.y ?? 0, point.z]}
@@ -148,19 +148,19 @@ export default function NavgraphRenderer() {
 
       {showEdges && (
         <group name="edges">
-          {Object.entries(navigationData.edges).map(([edgeId, edge]) => (
+          {Object.entries(navMap.edges).map(([edgeId, edge]) => (
             <Line
               key={edgeId}
               points={[
                 [
-                  navigationData.points[edge.from].x,
-                  navigationData.points[edge.from].y ?? 0,
-                  navigationData.points[edge.from].z,
+                  navMap.points[edge.from].x,
+                  navMap.points[edge.from].y ?? 0,
+                  navMap.points[edge.from].z,
                 ],
                 [
-                  navigationData.points[edge.to].x,
-                  navigationData.points[edge.to].y ?? 0,
-                  navigationData.points[edge.to].z,
+                  navMap.points[edge.to].x,
+                  navMap.points[edge.to].y ?? 0,
+                  navMap.points[edge.to].z,
                 ],
               ]}
               color="#FF0000"
@@ -181,8 +181,8 @@ export default function NavgraphRenderer() {
         <group name="adjacency-list">
           {Array.from(adjacencyList.entries()).map(([fromPointId, neighbors]) =>
             neighbors.map((toPointId: string, i: number) => {
-              const fromPoint = navigationData.points[fromPointId];
-              const toPoint = navigationData.points[toPointId];
+              const fromPoint = navMap.points[fromPointId];
+              const toPoint = navMap.points[toPointId];
 
               if (!fromPoint || !toPoint) return null;
 
@@ -232,7 +232,7 @@ export default function NavgraphRenderer() {
       )}
       {showAreas && (
         <group name="area-meshes">
-          {Object.entries(navigationData.meshes).map(([areaId, mesh]) => {
+          {Object.entries(pathfinder.areaMeshes).map(([areaId, mesh]) => {
             return (
               <group key={areaId}>
                 <primitive object={mesh} onPointerOver={() => {}}>
@@ -301,6 +301,25 @@ export default function NavgraphRenderer() {
                 </mesh>
               );
             })}
+        </group>
+      )}
+      {true && (
+        <group>
+          {legacyNavmesh?.map(({ name, geometry }) => (
+            <group key={name}>
+              <mesh
+                key={name + "x"}
+                geometry={geometry}
+                position={[0, 0.01, 0]}
+              >
+                <meshBasicMaterial
+                  color="#38bdf8"
+                  depthWrite={true}
+                  depthTest={true}
+                />
+              </mesh>
+            </group>
+          ))}
         </group>
       )}
     </group>

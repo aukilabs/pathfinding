@@ -1,12 +1,9 @@
-import { NavigationData } from "./NavigationData";
 import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
+import { NavMap } from "./NavgraphTypes";
 
-export function getAreasContainingEdge(
-  map: NavigationData,
-  edgeId: string
-): string[] {
+export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
   if (!map) return [];
 
   const edge = map.edges[edgeId];
@@ -20,7 +17,7 @@ export function getAreasContainingEdge(
     .map(([areaId, _]) => areaId);
 }
 
-export function findExitPoints(map: NavigationData, areaId: string): string[] {
+export function findExitPoints(map: NavMap, areaId: string): string[] {
   if (!map) return [];
 
   const area = map.areas[areaId];
@@ -47,7 +44,7 @@ export function findExitPoints(map: NavigationData, areaId: string): string[] {
 }
 
 export function isPointOnAreaEdge(
-  map: NavigationData,
+  map: NavMap,
   point: THREE.Vector3Like,
   areaId: string
 ): boolean {
@@ -76,7 +73,7 @@ export function isPointOnAreaEdge(
 }
 
 export function isPointInsideArea(
-  map: NavigationData,
+  map: NavMap,
   point: THREE.Vector3Like,
   areaId: string
 ): boolean {
@@ -105,7 +102,7 @@ export function isPointInsideArea(
 }
 
 export function findAreaContainingPoint(
-  map: NavigationData,
+  map: NavMap,
   point: THREE.Vector3Like
 ): string | null {
   if (!map) return null;
