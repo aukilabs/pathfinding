@@ -547,12 +547,7 @@ export class Pathfinder {
                   pointId
                 );
                 this._edgeWeights.set(storedKey, pathLength);
-                console.log(
-                  `Stored edge weight key: "${storedKey}" = ${pathLength}`
-                );
                 connectedPoints.push(pointId);
-              } else {
-                console.log(`Failed to connect to point ${pointId}:`, path);
               }
             } catch (error) {
               console.error(
@@ -734,9 +729,6 @@ export class Pathfinder {
                   constants.TO_INTERMEDIATE
                 );
                 this._edgeWeights.set(storedKey, pathLength);
-                console.log(
-                  `Stored edge weight key: "${storedKey}" = ${pathLength}`
-                );
                 connectedPoints.push(pointId);
               }
             } catch (error) {
@@ -864,23 +856,15 @@ export class Pathfinder {
       // Check neighbors
       const neighbors = tempGraph.get(current) || [];
 
-      //console.log(`Processing node: ${current}, neighbors:`, neighbors);
-
       for (const neighbor of neighbors) {
         if (visited.has(neighbor)) continue;
 
         const edgeWeightKey = constants.createEdgeWeightKey(current, neighbor);
-        console.log(
-          `Checking if key exists: ${this._edgeWeights.has(edgeWeightKey)}`
-        );
-        console.log(`Direct lookup: ${this._edgeWeights.get(edgeWeightKey)}`);
         const edgeWeight = mapUtils.getEdgeWeight(
           this._edgeWeights,
           current,
           neighbor
         );
-        console.log(`Looking up edge weight: ${edgeWeightKey} = ${edgeWeight}`);
-        console.log(`Edge weight ${current} → ${neighbor}: ${edgeWeight}`);
         const newDist = distances.get(current)! + edgeWeight;
 
         if (newDist < (distances.get(neighbor) || Infinity)) {
@@ -1106,18 +1090,6 @@ export class Pathfinder {
               this._edgeWeights.set(
                 constants.createEdgeWeightKey(toId, fromId),
                 navMeshDistance
-              );
-
-              console.log(
-                `Added direct NavMesh connection: ${fromId} ↔ ${toId} (${navMeshDistance.toFixed(
-                  2
-                )})`
-              );
-            } else {
-              console.log(
-                `Added NavMesh connection to adjacency list: ${fromId} ↔ ${toId} (NavMesh: ${navMeshDistance.toFixed(
-                  2
-                )}, Graph: ${existingWeight.toFixed(2)}) - using Graph weight`
               );
             }
           }
