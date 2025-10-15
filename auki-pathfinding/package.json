@@ -12,13 +12,15 @@
   },
   "dependencies": {
     "@recast-navigation/three": "^0.43.0",
-    "earcut": "^3.0.2",
+    "earcut": "^3.0.2"
+  },
+  "peerDependencies": {
+    "three": "^0.180.0",
     "recast-navigation": "^0.43.0",
-    "three": "^0.180.0"
+    "@recast-navigation/three": "^0.43.0"
   },
   "devDependencies": {
     "@types/earcut": "^3.0.0",
-    "@types/three": "^0.180.0",
     "typescript": "^5.9.3"
   },
   "files": [
