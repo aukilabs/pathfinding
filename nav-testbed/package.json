@@ -30,6 +30,7 @@
     "@eslint/js": "^9.36.0",
     "@types/earcut": "^3.0.0",
     "@types/node": "^24.6.0",
+    "@types/obj-file-parser": "^0.5.2",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
