@@ -142,3 +142,7 @@ export const createFromIntermediatePathKey = (nodeId: string): string =>
 /** Create a temporary path key for a node to to intermediate */
 export const createToIntermediatePathKey = (nodeId: string): string =>
   TEMP_PATH_KEY_TEMPLATES.NODE_TO_TO(nodeId);
+
+/** Create a temporary path key for direct from intermediate to to intermediate */
+export const createDirectPathKey = (): string =>
+  `${FROM_INTERMEDIATE}-${TO_INTERMEDIATE}`;

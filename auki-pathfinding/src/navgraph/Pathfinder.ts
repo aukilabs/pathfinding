@@ -381,9 +381,7 @@ export class Pathfinder {
       if (currentNode === constants.FROM_INTERMEDIATE) {
         // Check for direct connection to TO_INTERMEDIATE
         if (nextNode === constants.TO_INTERMEDIATE) {
-          const directPath = tempPaths.get(
-            `${constants.FROM_INTERMEDIATE}-${constants.TO_INTERMEDIATE}`
-          );
+          const directPath = tempPaths.get(constants.createDirectPathKey());
           if (directPath) {
             fullPath.push(...directPath);
             i++; // Skip TO_INTERMEDIATE
@@ -657,6 +655,54 @@ export class Pathfinder {
         tempAdjacencyList
           .get(fromResult.toPointId)!
           .push(constants.FROM_INTERMEDIATE);
+      }
+    } else if (fromIsLegacyEdge && toIsLegacyEdge) {
+      // Both 'from' and 'to' are on legacy NavMesh
+      // Add direct connection between intermediate points
+      const legacyNavMeshQuery = this._legacyNavMeshQuery;
+      if (legacyNavMeshQuery) {
+        try {
+          const fromV3 = new THREE.Vector3().copy(fromResult.position);
+          const toV3 = new THREE.Vector3().copy(toResult.position);
+
+          const path = legacyNavMeshQuery.computePath(fromV3, toV3);
+          if (path.success && path.path) {
+            const pathLength = geometry.calculatePathLength(path.path);
+
+            // Store the direct path
+            tempPaths.set(constants.createDirectPathKey(), path.path);
+
+            // Store the edge weight for Dijkstra
+            const directEdgeKey = constants.createEdgeWeightKey(
+              constants.FROM_INTERMEDIATE,
+              constants.TO_INTERMEDIATE
+            );
+            this._edgeWeights.set(directEdgeKey, pathLength);
+
+            // Add direct connection to adjacency list (don't overwrite existing connections)
+            const fromNeighbors =
+              tempAdjacencyList.get(constants.FROM_INTERMEDIATE) || [];
+            if (!fromNeighbors.includes(constants.TO_INTERMEDIATE)) {
+              fromNeighbors.push(constants.TO_INTERMEDIATE);
+            }
+            tempAdjacencyList.set(constants.FROM_INTERMEDIATE, fromNeighbors);
+
+            const toNeighbors =
+              tempAdjacencyList.get(constants.TO_INTERMEDIATE) || [];
+            if (!toNeighbors.includes(constants.FROM_INTERMEDIATE)) {
+              toNeighbors.push(constants.FROM_INTERMEDIATE);
+            }
+            tempAdjacencyList.set(constants.TO_INTERMEDIATE, toNeighbors);
+
+            console.log(
+              `Added direct legacy NavMesh connection: ${
+                constants.FROM_INTERMEDIATE
+              } ↔ ${constants.TO_INTERMEDIATE} (${pathLength.toFixed(2)})`
+            );
+          }
+        } catch (error) {
+          console.error("Failed to compute direct legacy NavMesh path:", error);
+        }
       }
     }
 
