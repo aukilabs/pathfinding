@@ -1,21 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { DragControls, Line, Text, Wireframe } from "@react-three/drei";
+import { DragControls, Line, Text } from "@react-three/drei";
 import { Pathfinder } from "auki-pathfinding";
 import { NavMeshHelper } from "@recast-navigation/three";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
 import { TestNavData } from "./TestNavGraph";
 import * as constants from "auki-pathfinding";
 import { createMeshes } from "./TestLegacyNavmesh";
-
-//type Floors = Record<string, { y: number; name: string }>;
-
-// const floors: Floors = {
-//   f1: {
-//     y: 0,
-//     name: "Floor 1",
-//   },
-// };
 
 export default function NavgraphRenderer() {
   const displayState = useNavgraphDisplayState();
