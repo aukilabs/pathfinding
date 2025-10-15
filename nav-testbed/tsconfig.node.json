@@ -9,6 +9,9 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    "paths": {
+      "@types/three": ["./node_modules/@types/three"]
+    },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
@@ -23,7 +26,4 @@
     "noUncheckedSideEffectImports": true
   },
   "include": ["vite.config.ts"],
-  "exclude": [
-    "node_modules/**/node_modules"
-  ]
 }

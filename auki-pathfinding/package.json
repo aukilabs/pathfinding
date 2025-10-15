@@ -11,12 +11,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@recast-navigation/three": "^0.43.0",
-    "earcut": "^3.0.2"
+    "earcut": "^3.0.2",
+    "recast-navigation": "^0.43.0"
   },
   "peerDependencies": {
     "three": "^0.180.0",
-    "recast-navigation": "^0.43.0",
     "@recast-navigation/three": "^0.43.0"
   },
   "devDependencies": {
