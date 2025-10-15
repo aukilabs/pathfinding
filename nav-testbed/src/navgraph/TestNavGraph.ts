@@ -2,6 +2,7 @@ import { NavMap } from "auki-pathfinding";
 
 export const TestNavData: NavMap = {
   points: {
+    p20: { x: 9, y: 0, z: -25 },
     p21: { x: -1, y: 0, z: 3 },
     p22: { x: 0.7, y: 0, z: 3 },
     p23: { x: -9, y: 0, z: 3 },
@@ -30,8 +31,9 @@ export const TestNavData: NavMap = {
     p46: { x: 7.5, y: 0, z: 3 },
   },
   edges: {
+    e28: { from: "p20", to: "p36" },
     e29: { from: "p21", to: "p22" },
-    e30: { from: "p23", to: "p43" },
+    e30: { from: "p23", to: "p43", dir: 1 },
     e31: { from: "p25", to: "p24" },
     e32: { from: "p25", to: "p26" },
     e33: { from: "p25", to: "p27" },

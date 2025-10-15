@@ -610,21 +610,80 @@ export class Pathfinder {
       }
     } else if (!fromIsLegacyEdge) {
       // Regular edge handling (only for non-legacy edges)
+      const fromPosition = new THREE.Vector3().copy(fromResult.position);
+
       if (!fromEdge!.dir || fromIsAreaEdge) {
-        tempAdjacencyList
-          .get(fromResult.fromPointId)!
-          .push(constants.FROM_INTERMEDIATE);
-        tempAdjacencyList
-          .get(fromResult.toPointId)!
-          .push(constants.FROM_INTERMEDIATE);
+        // Two-way edge - connect to both points with actual distances
+        const fromPoint = this.getMapPoint(fromResult.fromPointId);
+        const toPoint = this.getMapPoint(fromResult.toPointId);
+
+        if (fromPoint && toPoint) {
+          const distToFrom = new THREE.Vector3()
+            .copy(fromPoint)
+            .distanceTo(fromPosition);
+          const distToTo = new THREE.Vector3()
+            .copy(toPoint)
+            .distanceTo(fromPosition);
+
+          tempAdjacencyList
+            .get(fromResult.fromPointId)!
+            .push(constants.FROM_INTERMEDIATE);
+          tempAdjacencyList
+            .get(fromResult.toPointId)!
+            .push(constants.FROM_INTERMEDIATE);
+
+          // Store actual distances for Dijkstra
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              constants.FROM_INTERMEDIATE,
+              fromResult.fromPointId
+            ),
+            distToFrom
+          );
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              constants.FROM_INTERMEDIATE,
+              fromResult.toPointId
+            ),
+            distToTo
+          );
+        }
       } else if (fromEdge!.dir === 1) {
-        tempAdjacencyList
-          .get(fromResult.fromPointId)!
-          .push(constants.FROM_INTERMEDIATE);
+        // One-way edge - only connect to fromPoint
+        const fromPoint = this.getMapPoint(fromResult.fromPointId);
+        if (fromPoint) {
+          const distToFrom = new THREE.Vector3()
+            .copy(fromPoint)
+            .distanceTo(fromPosition);
+          tempAdjacencyList
+            .get(fromResult.fromPointId)!
+            .push(constants.FROM_INTERMEDIATE);
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              constants.FROM_INTERMEDIATE,
+              fromResult.fromPointId
+            ),
+            distToFrom
+          );
+        }
       } else if (fromEdge!.dir === -1) {
-        tempAdjacencyList
-          .get(fromResult.toPointId)!
-          .push(constants.FROM_INTERMEDIATE);
+        // One-way-reverse edge - only connect to toPoint
+        const toPoint = this.getMapPoint(fromResult.toPointId);
+        if (toPoint) {
+          const distToTo = new THREE.Vector3()
+            .copy(toPoint)
+            .distanceTo(fromPosition);
+          tempAdjacencyList
+            .get(fromResult.toPointId)!
+            .push(constants.FROM_INTERMEDIATE);
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              constants.FROM_INTERMEDIATE,
+              fromResult.toPointId
+            ),
+            distToTo
+          );
+        }
       }
     }
 
@@ -796,21 +855,80 @@ export class Pathfinder {
       }
     } else if (!toIsLegacyEdge) {
       // Regular edge handling (only for non-legacy edges)
+      const toPosition = new THREE.Vector3().copy(toResult.position);
+
       if (!toEdge!.dir || toIsAreaEdge) {
-        tempAdjacencyList
-          .get(toResult.fromPointId)!
-          .push(constants.TO_INTERMEDIATE);
-        tempAdjacencyList
-          .get(toResult.toPointId)!
-          .push(constants.TO_INTERMEDIATE);
+        // Two-way edge - connect to both points with actual distances
+        const fromPoint = this.getMapPoint(toResult.fromPointId);
+        const toPoint = this.getMapPoint(toResult.toPointId);
+
+        if (fromPoint && toPoint) {
+          const distToFrom = new THREE.Vector3()
+            .copy(fromPoint)
+            .distanceTo(toPosition);
+          const distToTo = new THREE.Vector3()
+            .copy(toPoint)
+            .distanceTo(toPosition);
+
+          tempAdjacencyList
+            .get(toResult.fromPointId)!
+            .push(constants.TO_INTERMEDIATE);
+          tempAdjacencyList
+            .get(toResult.toPointId)!
+            .push(constants.TO_INTERMEDIATE);
+
+          // Store actual distances for Dijkstra
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              toResult.fromPointId,
+              constants.TO_INTERMEDIATE
+            ),
+            distToFrom
+          );
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              toResult.toPointId,
+              constants.TO_INTERMEDIATE
+            ),
+            distToTo
+          );
+        }
       } else if (toEdge!.dir === 1) {
-        tempAdjacencyList
-          .get(toResult.fromPointId)!
-          .push(constants.TO_INTERMEDIATE);
+        // One-way edge - only connect to fromPoint
+        const fromPoint = this.getMapPoint(toResult.fromPointId);
+        if (fromPoint) {
+          const distToFrom = new THREE.Vector3()
+            .copy(fromPoint)
+            .distanceTo(toPosition);
+          tempAdjacencyList
+            .get(toResult.fromPointId)!
+            .push(constants.TO_INTERMEDIATE);
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              toResult.fromPointId,
+              constants.TO_INTERMEDIATE
+            ),
+            distToFrom
+          );
+        }
       } else if (toEdge!.dir === -1) {
-        tempAdjacencyList
-          .get(toResult.toPointId)!
-          .push(constants.TO_INTERMEDIATE);
+        // One-way-reverse edge - only connect to toPoint
+        const toPoint = this.getMapPoint(toResult.toPointId);
+        if (toPoint) {
+          const distToTo = new THREE.Vector3()
+            .copy(toPoint)
+            .distanceTo(toPosition);
+          tempAdjacencyList
+            .get(toResult.toPointId)!
+            .push(constants.TO_INTERMEDIATE);
+          this._edgeWeights.set(
+            constants.createEdgeWeightKey(
+              toResult.toPointId,
+              constants.TO_INTERMEDIATE
+            ),
+            distToTo
+          );
+        }
       }
     }
 
