@@ -18,14 +18,7 @@ import { createMeshes } from "./TestLegacyNavmesh";
 // };
 
 export default function NavgraphRenderer() {
-  const {
-    showEdges,
-    showPoints,
-    showPath,
-    showAreas,
-    showNavmesh,
-    showAdjacencyList,
-  } = useNavgraphDisplayState();
+  const displayState = useNavgraphDisplayState();
   const [path, setPath] = useState<THREE.Vector3Like[] | null>(null);
   const [start, setStart] = useState<THREE.Vector3Like>({ x: 4, y: 0, z: 0 });
   const [end, setEnd] = useState<THREE.Vector3Like>({ x: -5, y: 0, z: -4.5 });
@@ -80,7 +73,7 @@ export default function NavgraphRenderer() {
 
   return (
     <group>
-      {showNavmesh && (
+      {displayState.showNavmesh && (
         <group name="navmesh">
           {Array.from(pathfinder.navmeshes.entries()).map(([id, _]) => {
             return <primitive key={id} object={navmeshHelpers(id)} />;
@@ -123,7 +116,7 @@ export default function NavgraphRenderer() {
           </group>
         </DragControls>
       </group>
-      {showPoints && (
+      {displayState.showPoints && (
         <group name="points">
           {Object.entries(navMap.points).map(([pointId, point]) => (
             <mesh
@@ -146,7 +139,7 @@ export default function NavgraphRenderer() {
         </group>
       )}
 
-      {showEdges && (
+      {displayState.showEdges && (
         <group name="edges">
           {Object.entries(navMap.edges).map(([edgeId, edge]) => (
             <Line
@@ -177,7 +170,7 @@ export default function NavgraphRenderer() {
       )}
 
       {/* Visualize adjacency list connections */}
-      {showAdjacencyList && (
+      {displayState.showAdjacencyList && (
         <group name="adjacency-list">
           {Array.from(adjacencyList.entries()).map(([fromPointId, neighbors]) =>
             neighbors.map((toPointId: string, i: number) => {
@@ -230,7 +223,7 @@ export default function NavgraphRenderer() {
           )}
         </group>
       )}
-      {showAreas && (
+      {displayState.showAreas && (
         <group name="area-meshes">
           {Object.entries(pathfinder.areaMeshes).map(([areaId, mesh]) => {
             return (
@@ -248,7 +241,7 @@ export default function NavgraphRenderer() {
           })}
         </group>
       )}
-      {showPath && (
+      {displayState.showPath && (
         <group name="path">
           {/* draw lines between consecutive points in path */}
           {path &&
@@ -303,7 +296,7 @@ export default function NavgraphRenderer() {
             })}
         </group>
       )}
-      {true && (
+      {displayState.showLegacyNavmesh && (
         <group>
           {legacyNavmesh?.map(({ name, geometry }) => (
             <group key={name}>

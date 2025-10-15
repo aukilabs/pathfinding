@@ -1,7 +1,6 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { Suspense, useRef } from "react";
-import * as THREE from "three";
 import Scene from "./Scene";
 
 const ThreeCanvas = () => {

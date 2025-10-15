@@ -94,6 +94,17 @@ export default function NavgraphToolbar({}: {}) {
                     Show Adjacency List
                   </GotuSwitch>
                 </ListBoxItem>
+                <ListBoxItem textValue="Show Legacy Navmesh">
+                  <GotuSwitch
+                    isSelected={state.showLegacyNavmesh}
+                    onChange={() => {
+                      state.setShowLegacyNavmesh(!state.showLegacyNavmesh);
+                    }}
+                    ariaLabel="Toggle show legacy navmesh"
+                  >
+                    Show Legacy Navmesh
+                  </GotuSwitch>
+                </ListBoxItem>
               </ListBox>
             </Popover>
           </MenuTrigger>

@@ -1,3 +1,4 @@
+import earcut from "earcut";
 import * as THREE from "three";
 
 export function calculateDistance(
@@ -215,4 +216,77 @@ export function expandPolygon(
   }
 
   return expanded;
+}
+
+export function triangulateArea(
+  polygon: THREE.Vector3Like[]
+): THREE.Vector3Like[][] | null {
+  // Convert polygon to 2D for earcut (project to XZ plane)
+  const vertices2D: number[] = [];
+  const vertices3D: THREE.Vector3Like[] = [];
+
+  polygon.forEach((vertex, index) => {
+    vertices2D.push(vertex.x, vertex.z); // X and Z coordinates
+    vertices3D.push(vertex);
+  });
+
+  // Triangulate using earcut
+  const triangles = earcut(vertices2D);
+
+  if (!triangles || triangles.length === 0) {
+    console.log("Earcut failed or returned empty result");
+    return null;
+  }
+
+  // Convert back to 3D triangles and ensure counter-clockwise winding order
+  const result: THREE.Vector3Like[][] = [];
+  for (let i = 0; i < triangles.length; i += 3) {
+    const triangle: THREE.Vector3Like[] = [];
+
+    // For counter-clockwise winding order (facing upward), we need to reverse the order
+    // earcut returns clockwise triangles, so we reverse them
+    for (let j = 2; j >= 0; j--) {
+      const vertexIndex = triangles[i + j];
+      triangle.push(vertices3D[vertexIndex]);
+    }
+
+    result.push(triangle);
+  }
+
+  return result;
+}
+
+export function createMeshFromTriangles(
+  areaId: string,
+  triangles: THREE.Vector3Like[][]
+): THREE.Mesh | null {
+  if (!triangles || triangles.length === 0) {
+    console.log("Failed to triangulate area:", areaId);
+    return null;
+  }
+
+  // Create geometry from triangles
+  const geometry = new THREE.BufferGeometry();
+  const vertices: number[] = [];
+  const indices: number[] = [];
+
+  triangles.forEach((triangle, triangleIndex) => {
+    triangle.forEach((vertex) => {
+      vertices.push(vertex.x, vertex.y ?? 0, vertex.z);
+    });
+    // Add indices for this triangle
+    const baseIndex = triangleIndex * 3;
+    indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
+  });
+
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(vertices, 3)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+  mesh.name = areaId;
+  return mesh;
 }

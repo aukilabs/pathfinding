@@ -96,8 +96,7 @@ export class Pathfinder {
     this._map = map;
     this._legacyMeshes = legacyNavmesh;
 
-    this.initializeMap();
-
+    this.initializeMapAreas();
     this.buildAdjacencyList();
     await this.initializeAreaNavMeshes();
     await this.initializeAreaDistances();
@@ -106,124 +105,27 @@ export class Pathfinder {
     this.isLoaded = true;
   }
 
-  private initializeMap() {
+  private initializeMapAreas() {
     for (const [areaId, area] of Object.entries(this._map.areas)) {
-      const polygon = this.buildPolygonFromArea(area);
+      const polygon = mapUtils.buildPolygonFromArea(area, this._map.points);
       if (!polygon) {
         console.error("failed to build polygon for area");
         continue;
       }
 
       const expandedPolygon = geometry.expandPolygon(polygon, 0.01);
-      const triangles = this.triangulateArea(area, expandedPolygon);
+      const triangles = geometry.triangulateArea(expandedPolygon);
       if (!triangles) {
         console.error("failed to triangulate area");
         continue;
       }
-      const mesh = this.createMeshForArea(areaId, triangles);
+      const mesh = geometry.createMeshFromTriangles(areaId, triangles);
       if (!mesh) {
         console.error("failed to create mesh for area");
         continue;
       }
       this._areaMeshes[areaId] = mesh;
     }
-  }
-
-  private buildPolygonFromArea(area: Area): THREE.Vector3Like[] | null {
-    if (!this._map) return null;
-
-    // Find a starting edge and build the polygon
-    const polygon: THREE.Vector3Like[] = area.points.map((pointId) => {
-      return this._map.points[pointId];
-    });
-
-    return polygon.length > 2 ? polygon : null;
-  }
-
-  private triangulateArea(
-    area: Area,
-    polygon: THREE.Vector3Like[]
-  ): THREE.Vector3Like[][] | null {
-    if (!this._map) return null;
-
-    if (!polygon || polygon.length < 3) {
-      console.log("Invalid polygon for area:", area.points);
-      return null;
-    }
-
-    // Convert polygon to 2D for earcut (project to XZ plane)
-    const vertices2D: number[] = [];
-    const vertices3D: THREE.Vector3Like[] = [];
-
-    polygon.forEach((vertex, index) => {
-      vertices2D.push(vertex.x, vertex.z); // X and Z coordinates
-      vertices3D.push(vertex);
-    });
-
-    // Triangulate using earcut
-    const triangles = earcut(vertices2D);
-
-    if (!triangles || triangles.length === 0) {
-      console.log("Earcut failed or returned empty result");
-      return null;
-    }
-
-    // Convert back to 3D triangles and ensure counter-clockwise winding order
-    const result: THREE.Vector3Like[][] = [];
-    for (let i = 0; i < triangles.length; i += 3) {
-      const triangle: THREE.Vector3Like[] = [];
-
-      // For counter-clockwise winding order (facing upward), we need to reverse the order
-      // earcut returns clockwise triangles, so we reverse them
-      for (let j = 2; j >= 0; j--) {
-        const vertexIndex = triangles[i + j];
-        triangle.push(vertices3D[vertexIndex]);
-      }
-
-      result.push(triangle);
-    }
-
-    return result;
-  }
-
-  private createMeshForArea(
-    areaId: string,
-    triangles: THREE.Vector3Like[][]
-  ): THREE.Mesh | null {
-    const area = this._map.areas[areaId];
-    if (!area) {
-      console.log("Area not found:", areaId);
-      return null;
-    }
-    if (!triangles || triangles.length === 0) {
-      console.log("Failed to triangulate area:", areaId);
-      return null;
-    }
-
-    // Create geometry from triangles
-    const geometry = new THREE.BufferGeometry();
-    const vertices: number[] = [];
-    const indices: number[] = [];
-
-    triangles.forEach((triangle, triangleIndex) => {
-      triangle.forEach((vertex) => {
-        vertices.push(vertex.x, vertex.y ?? 0, vertex.z);
-      });
-      // Add indices for this triangle
-      const baseIndex = triangleIndex * 3;
-      indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
-    });
-
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(vertices, 3)
-    );
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-
-    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
-    mesh.name = areaId;
-    return mesh;
   }
 
   private cleanUp() {
@@ -562,7 +464,6 @@ export class Pathfinder {
 
     // Handle legacy NavMesh edges
     if (fromIsLegacyEdge) {
-      console.log("Handling legacy NavMesh edge for 'from'");
       const legacyNavMeshQuery = this._legacyNavMeshQuery;
       if (legacyNavMeshQuery) {
         // Find all virtual portal points connected to legacy NavMesh
@@ -596,8 +497,6 @@ export class Pathfinder {
             }
           }
         });
-
-        console.log(`Connected portals for 'from':`, connectedPortals);
 
         // Only connect to legacy portal points, not all graph points
         // This prevents direct jumps from legacy NavMesh to arbitrary graph points
@@ -1036,9 +935,6 @@ export class Pathfinder {
       intersectingPoints
     );
 
-    // Create virtual connection points on the legacy NavMesh surface
-    const virtualPoints: Map<string, THREE.Vector3Like> = new Map();
-
     for (const pointId of intersectingPoints) {
       const point = this._map.points[pointId];
       const virtualPointId = constants.createLegacyPortalId(pointId);
@@ -1146,7 +1042,7 @@ export class Pathfinder {
   private async initializeAreaDistances(): Promise<void> {
     if (!this._map) return;
 
-    for (const [areaId, area] of Object.entries(this._map.areas)) {
+    for (const areaId of Object.keys(this._map.areas)) {
       const navMesh = this._areaNavMeshQueries.get(areaId);
       if (!navMesh) continue;
 

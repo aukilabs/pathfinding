@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
-import { NavMap } from "./NavgraphTypes";
+import { Area, NavMap, Points } from "./NavgraphTypes";
 
 export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
   if (!map) return [];
@@ -143,4 +143,18 @@ export function getEdgeWeight(
   // Regular edge weight - check if connection exists
   const weight = edgeWeights.get(constants.createEdgeWeightKey(from, to));
   return weight !== undefined ? weight : Infinity;
+}
+
+export function buildPolygonFromArea(
+  area: Area,
+  points: Points
+): THREE.Vector3Like[] | null {
+  if (!points) return null;
+
+  // Find a starting edge and build the polygon
+  const polygon: THREE.Vector3Like[] = area.points.map((pointId) => {
+    return points[pointId];
+  });
+
+  return polygon.length > 2 ? polygon : null;
 }
