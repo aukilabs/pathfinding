@@ -8,11 +8,7 @@ const ThreeCanvas = () => {
 
   return (
     <div className="w-full h-full ">
-      <Canvas
-        id="three-canvas"
-        camera={{ position: [0, 5, 10], fov: 50 }}
-        onPointerMissed={(e) => {}}
-      >
+      <Canvas id="three-canvas" camera={{ position: [0, 5, 10], fov: 50 }}>
         <Suspense fallback={null}>
           <Scene />
         </Suspense>
