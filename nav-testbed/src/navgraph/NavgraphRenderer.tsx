@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { DragControls, Line, Text, Wireframe } from "@react-three/drei";
-import { Pathfinder } from "./Pathfinder";
+import { Pathfinder } from "auki-pathfinding";
 import { NavMeshHelper } from "@recast-navigation/three";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
 import { TestNavData } from "./TestNavGraph";
-import * as constants from "./Constants";
+import * as constants from "auki-pathfinding";
 import { createMeshes } from "./TestLegacyNavmesh";
 
 //type Floors = Record<string, { y: number; name: string }>;
@@ -43,14 +43,13 @@ export default function NavgraphRenderer() {
   }, []);
 
   useEffect(() => {
-    console.log("Loading pathfinder");
     const asyncLoad = async () => {
       await pathfinder.load(TestNavData, legacyNavmesh);
       //kickstart the first pathfinding
       setStart({ ...start });
     };
     asyncLoad();
-  }, [pathfinder]);
+  }, []);
 
   useEffect(() => {
     if (!pathfinder.loaded) return;

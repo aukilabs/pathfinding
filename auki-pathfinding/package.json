@@ -1,0 +1,27 @@
+{
+  "name": "auki-pathfinding",
+  "version": "1.0.0",
+  "description": "Local pathfinding package for testing",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@recast-navigation/three": "^0.43.0",
+    "earcut": "^3.0.2",
+    "recast-navigation": "^0.43.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/earcut": "^3.0.0",
+    "@types/three": "^0.180.0",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist"
+  ]
+}
