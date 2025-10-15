@@ -122,6 +122,12 @@ export function getEdgeWeight(
   from: string,
   to: string
 ): number {
+  // First check if we have a stored weight for this edge
+  const weight = edgeWeights.get(constants.createEdgeWeightKey(from, to));
+  if (weight !== undefined) {
+    return weight;
+  }
+
   // Handle intermediate points - calculate actual distance to their edge endpoints
   if (
     from === constants.FROM_INTERMEDIATE ||
@@ -130,19 +136,18 @@ export function getEdgeWeight(
     const other = from === constants.FROM_INTERMEDIATE ? to : from;
     // Calculate distance from intermediate point to the other node
     // For now, use a small weight since we don't have access to the intermediate position here
-    return 0.1;
+    return constants.INTERMEDIATE_POINT_WEIGHT;
   }
 
   if (from === constants.TO_INTERMEDIATE || to === constants.TO_INTERMEDIATE) {
     const other = from === constants.TO_INTERMEDIATE ? to : from;
     // Calculate distance from intermediate point to the other node
     // For now, use a small weight since we don't have access to the intermediate position here
-    return 0.1;
+    return constants.INTERMEDIATE_POINT_WEIGHT;
   }
 
   // Regular edge weight - check if connection exists
-  const weight = edgeWeights.get(constants.createEdgeWeightKey(from, to));
-  return weight !== undefined ? weight : Infinity;
+  return Infinity;
 }
 
 export function buildPolygonFromArea(

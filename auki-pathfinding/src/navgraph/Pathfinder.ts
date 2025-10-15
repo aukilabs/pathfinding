@@ -538,9 +538,19 @@ export class Pathfinder {
 
               const path = legacyNavMeshQuery.computePath(fromV3, pointV3);
               if (path.success && path.path) {
+                const pathLength = geometry.calculatePathLength(path.path);
                 tempPaths.set(
                   constants.createFromIntermediatePathKey(pointId),
                   path.path
+                );
+                // Store the actual path length for Dijkstra
+                const storedKey = constants.createEdgeWeightKey(
+                  constants.FROM_INTERMEDIATE,
+                  pointId
+                );
+                this._edgeWeights.set(storedKey, pathLength);
+                console.log(
+                  `Stored edge weight key: "${storedKey}" = ${pathLength}`
                 );
                 connectedPoints.push(pointId);
               } else {
@@ -667,9 +677,19 @@ export class Pathfinder {
 
               const path = legacyNavMeshQuery.computePath(pointV3, toV3);
               if (path.success && path.path) {
+                const pathLength = geometry.calculatePathLength(path.path);
                 tempPaths.set(
                   constants.createToIntermediatePathKey(pointId),
                   path.path
+                );
+                // Store the actual path length for Dijkstra
+                const storedKey = constants.createEdgeWeightKey(
+                  pointId,
+                  constants.TO_INTERMEDIATE
+                );
+                this._edgeWeights.set(storedKey, pathLength);
+                console.log(
+                  `Stored edge weight key: "${storedKey}" = ${pathLength}`
                 );
                 connectedPoints.push(pointId);
               }
@@ -799,11 +819,18 @@ export class Pathfinder {
       for (const neighbor of neighbors) {
         if (visited.has(neighbor)) continue;
 
+        const edgeWeightKey = constants.createEdgeWeightKey(current, neighbor);
+        console.log(
+          `Checking if key exists: ${this._edgeWeights.has(edgeWeightKey)}`
+        );
+        console.log(`Direct lookup: ${this._edgeWeights.get(edgeWeightKey)}`);
         const edgeWeight = mapUtils.getEdgeWeight(
           this._edgeWeights,
           current,
           neighbor
         );
+        console.log(`Looking up edge weight: ${edgeWeightKey} = ${edgeWeight}`);
+        console.log(`Edge weight ${current} → ${neighbor}: ${edgeWeight}`);
         const newDist = distances.get(current)! + edgeWeight;
 
         if (newDist < (distances.get(neighbor) || Infinity)) {
