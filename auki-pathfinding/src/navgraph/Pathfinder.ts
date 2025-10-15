@@ -784,6 +784,7 @@ export class Pathfinder {
     from: string,
     to: string
   ): string[] | null {
+    console.log(`Dijkstra starting: ${from} → ${to}`);
     const distances = new Map<string, number>();
     const previous = new Map<string, string | null>();
     const visited = new Set<string>();
@@ -816,6 +817,9 @@ export class Pathfinder {
 
       // Check neighbors
       const neighbors = tempGraph.get(current) || [];
+
+      //console.log(`Processing node: ${current}, neighbors:`, neighbors);
+
       for (const neighbor of neighbors) {
         if (visited.has(neighbor)) continue;
 
@@ -1038,24 +1042,24 @@ export class Pathfinder {
 
             const navMeshDistance = geometry.calculatePathLength(path.path);
 
-            // Only add NavMesh connection if there's no existing edge, or if NavMesh is shorter
-            if (!existingWeight || navMeshDistance < existingWeight) {
-              // Add bidirectional connection to adjacency list
-              this._adjacencyList.get(fromId)!.push(toId);
-              this._adjacencyList.get(toId)!.push(fromId);
+            // Always add connection to adjacency list and store NavMesh path for reconstruction
+            this._adjacencyList.get(fromId)!.push(toId);
+            this._adjacencyList.get(toId)!.push(fromId);
 
+            // Store the actual path for reconstruction
+            this._precomputedAreaPaths.set(existingWeightKey, path.path);
+            this._precomputedAreaPaths.set(
+              constants.createEdgeWeightKey(toId, fromId),
+              path.path.toReversed()
+            );
+
+            // Only update edge weights if there's no existing edge, or if NavMesh is shorter
+            if (!existingWeight || navMeshDistance < existingWeight) {
               // Store precomputed path and distance
               this._edgeWeights.set(existingWeightKey, navMeshDistance);
               this._edgeWeights.set(
                 constants.createEdgeWeightKey(toId, fromId),
                 navMeshDistance
-              );
-
-              // Store the actual path for reconstruction
-              this._precomputedAreaPaths.set(existingWeightKey, path.path);
-              this._precomputedAreaPaths.set(
-                constants.createEdgeWeightKey(toId, fromId),
-                path.path.toReversed()
               );
 
               console.log(
@@ -1065,9 +1069,9 @@ export class Pathfinder {
               );
             } else {
               console.log(
-                `Skipped NavMesh connection: ${fromId} ↔ ${toId} (NavMesh: ${navMeshDistance.toFixed(
+                `Added NavMesh connection to adjacency list: ${fromId} ↔ ${toId} (NavMesh: ${navMeshDistance.toFixed(
                   2
-                )}, Graph: ${existingWeight.toFixed(2)})`
+                )}, Graph: ${existingWeight.toFixed(2)}) - using Graph weight`
               );
             }
           }
