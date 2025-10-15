@@ -5,7 +5,6 @@ import { NavMeshQuery } from "recast-navigation";
 import * as constants from "./Constants";
 
 export function chooseClosestResult(
-  legacyPortalPoints: Map<string, THREE.Vector3Like>,
   edgeResult: any,
   legacyResult: any,
   originalPosition: THREE.Vector3Like
@@ -16,18 +15,12 @@ export function chooseClosestResult(
 
   // Choose the one with smaller distance
   if (legacyResult.distance < edgeResult.distance) {
-    // Find the closest legacy portal point to use as connection points
-    const closestPortal = legacyQuery.findClosestLegacyPortal(
-      legacyPortalPoints,
-      originalPosition
-    );
-
     // Convert legacy result to edge result format
     return {
       position: legacyResult.position,
       edgeId: constants.LEGACY_NAVMESH_SURFACE_EDGE_ID,
-      fromPointId: closestPortal || constants.LEGACY_PORTAL_FROM_FALLBACK,
-      toPointId: closestPortal || constants.LEGACY_PORTAL_TO_FALLBACK,
+      fromPointId: constants.LEGACY_PORTAL_FROM_FALLBACK,
+      toPointId: constants.LEGACY_PORTAL_TO_FALLBACK,
       distance: legacyResult.distance,
     };
   } else {
@@ -84,7 +77,6 @@ export function reconstructPath(
 
 export function tryDirectLegacyNavMeshPath(
   legacyNavMeshQuery: NavMeshQuery | null,
-  legacyPortalPoints: Map<string, THREE.Vector3Like>,
   from: THREE.Vector3Like,
   to: THREE.Vector3Like
 ): THREE.Vector3Like[] | null {
@@ -96,21 +88,7 @@ export function tryDirectLegacyNavMeshPath(
 
     const path = legacyNavMeshQuery.computePath(fromV3, toV3);
     if (path.success && path.path && path.path.length > 0) {
-      // Calculate the direct path length
-      const directPathLength = geometry.calculatePathLength(path.path);
-
-      // Estimate the portal-based path length
-      const portalPathLength = estimatePortalPathLength(
-        legacyPortalPoints,
-        from,
-        to
-      );
-
-      // Use direct path if it's shorter or significantly simpler
-      if (directPathLength < portalPathLength * 1.1) {
-        // 10% tolerance
-        return [from, ...path.path, to];
-      }
+      return [from, ...path.path, to];
     }
   } catch (error) {
     console.error("Error computing direct legacy NavMesh path:", error);
