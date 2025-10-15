@@ -164,8 +164,12 @@ export default function NavgraphRenderer() {
         <group name="adjacency-list">
           {Array.from(adjacencyList.entries()).map(([fromPointId, neighbors]) =>
             neighbors.map((toPointId: string, i: number) => {
-              const fromPoint = navMap.points[fromPointId];
-              const toPoint = navMap.points[toPointId];
+              const fromPoint =
+                navMap.points[fromPointId] ||
+                pathfinder.legacyPortalPoints.get(fromPointId);
+              const toPoint =
+                navMap.points[toPointId] ||
+                pathfinder.legacyPortalPoints.get(toPointId);
 
               if (!fromPoint || !toPoint) return null;
 

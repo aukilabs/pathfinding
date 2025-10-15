@@ -64,6 +64,10 @@ export class Pathfinder {
     return this._precomputedAreaPaths;
   }
 
+  get legacyPortalPoints() {
+    return this._legacyPortalPoints;
+  }
+
   // Getter that combines original points with legacy portal points
   private getMapPointOrLegacyConnection(
     pointId: string
@@ -95,7 +99,7 @@ export class Pathfinder {
 
     this._map = map;
     this._legacyMeshes = legacyNavmesh;
-
+    await init();
     this.initializeMapAreas();
     this.buildAdjacencyList();
     await this.initializeAreaNavMeshes();
@@ -249,23 +253,82 @@ export class Pathfinder {
     );
 
     // Special case: if both points are on the same legacy NavMesh,
-    // check if direct NavMesh path is shorter than portal-based path
+    // check if direct NavMesh path is shorter than the full graph-optimized path
     if (fromLegacyResult && toLegacyResult) {
-      const directNavMeshPath = pathfinding.tryDirectLegacyNavMeshPath(
-        this._legacyNavMeshQuery,
+      // First, compute the full graph-optimized path
+      const fromResult = pathfinding.chooseClosestResult(
         this._legacyPortalPoints,
-        from,
+        fromEdgeResult,
+        fromLegacyResult,
+        from
+      );
+      const toResult = pathfinding.chooseClosestResult(
+        this._legacyPortalPoints,
+        toEdgeResult,
+        toLegacyResult,
         to
       );
-      if (directNavMeshPath) {
-        console.log(
-          "Using direct legacy NavMesh path (shorter than portal route)"
+
+      if (fromResult && toResult) {
+        // Create temporary graph and find the graph-optimized path
+        const { tempAdjacencyList, tempPaths } = this.createTemporaryGraph(
+          fromResult,
+          toResult
         );
-        return directNavMeshPath;
+
+        const graphPath = this.dijkstraWithTempGraph(
+          tempAdjacencyList,
+          constants.FROM_INTERMEDIATE,
+          constants.TO_INTERMEDIATE
+        );
+
+        if (graphPath) {
+          // Convert to world coordinates to get actual path length
+          const fullGraphPath = this.convertGraphPathToWorldPath(
+            graphPath,
+            fromResult,
+            toResult,
+            from,
+            to,
+            tempPaths
+          );
+          const graphPathLength = geometry.calculatePathLength(fullGraphPath);
+
+          // Now compare with direct NavMesh path
+          const directNavMeshPath = pathfinding.tryDirectLegacyNavMeshPath(
+            this._legacyNavMeshQuery,
+            this._legacyPortalPoints,
+            from,
+            to
+          );
+
+          if (directNavMeshPath) {
+            const directPathLength =
+              geometry.calculatePathLength(directNavMeshPath);
+
+            // Use direct path only if it's significantly shorter
+            if (directPathLength < graphPathLength * 0.9) {
+              // 10% shorter threshold
+              console.log(
+                `Using direct legacy NavMesh path (${directPathLength.toFixed(
+                  2
+                )} vs ${graphPathLength.toFixed(2)})`
+              );
+              return directNavMeshPath;
+            } else {
+              console.log(
+                `Using graph-optimized path (${graphPathLength.toFixed(
+                  2
+                )} vs ${directPathLength.toFixed(2)})`
+              );
+              return fullGraphPath;
+            }
+          }
+        }
       }
     }
 
-    // Choose the closest option for each endpoint
+    // If we get here, use the normal pathfinding logic
     const fromResult = pathfinding.chooseClosestResult(
       this._legacyPortalPoints,
       fromEdgeResult,
@@ -341,6 +404,18 @@ export class Pathfinder {
       const nextNode = graphPath[i + 1];
 
       if (currentNode === constants.FROM_INTERMEDIATE) {
+        // Check for direct connection to TO_INTERMEDIATE
+        if (nextNode === constants.TO_INTERMEDIATE) {
+          const directPath = tempPaths.get(
+            `${constants.FROM_INTERMEDIATE}-${constants.TO_INTERMEDIATE}`
+          );
+          if (directPath) {
+            fullPath.push(...directPath);
+            i++; // Skip TO_INTERMEDIATE
+            continue;
+          }
+        }
+
         // Check if we have a precomputed path from intermediate to next node
         if (nextNode && nextNode !== constants.TO_INTERMEDIATE) {
           const precomputedPath = tempPaths.get(
@@ -441,11 +516,43 @@ export class Pathfinder {
       ]);
     }
 
-    // Add connections from existing nodes to intermediate points
+    // ADD THIS: Direct connection between intermediate nodes if both are on legacy NavMesh
     const fromIsLegacyEdge =
       fromResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
     const toIsLegacyEdge =
       toResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
+
+    if (fromIsLegacyEdge && toIsLegacyEdge) {
+      // Add direct connection between intermediate nodes
+      tempAdjacencyList
+        .get(constants.FROM_INTERMEDIATE)!
+        .push(constants.TO_INTERMEDIATE);
+
+      // Compute the direct NavMesh path and store it
+      const directNavMeshPath = pathfinding.tryDirectLegacyNavMeshPath(
+        this._legacyNavMeshQuery,
+        this._legacyPortalPoints,
+        fromResult.position,
+        toResult.position
+      );
+
+      if (directNavMeshPath) {
+        // Store the path for later use
+        tempPaths.set(
+          `${constants.FROM_INTERMEDIATE}-${constants.TO_INTERMEDIATE}`,
+          directNavMeshPath
+        );
+      }
+    }
+
+    // Add connections from existing nodes to intermediate points
+    const fromIsAreaEdge = fromIsLegacyEdge
+      ? []
+      : mapUtils.getAreasContainingEdge(this._map, fromResult.edgeId).length >
+        0;
+    const toIsAreaEdge = toIsLegacyEdge
+      ? []
+      : mapUtils.getAreasContainingEdge(this._map, toResult.edgeId).length > 0;
 
     const fromEdge = fromIsLegacyEdge
       ? null
@@ -459,8 +566,8 @@ export class Pathfinder {
       ? []
       : mapUtils.getAreasContainingEdge(this._map, toResult.edgeId);
 
-    const fromIsAreaEdge = fromEdgeAreas.length > 0;
-    const toIsAreaEdge = toEdgeAreas.length > 0;
+    //const fromIsAreaEdge = fromEdgeAreas.length > 0;
+    //const toIsAreaEdge = toEdgeAreas.length > 0;
 
     // Handle legacy NavMesh edges
     if (fromIsLegacyEdge) {
@@ -827,8 +934,6 @@ export class Pathfinder {
     this._areaNavMeshQueries.clear();
     if (!this._map) return;
 
-    await init();
-
     for (const areaId of Object.keys(this._areaMeshes)) {
       const mesh = this._areaMeshes[areaId];
 
@@ -917,10 +1022,6 @@ export class Pathfinder {
       return;
     }
 
-    console.log(
-      "Legacy NavMesh query found, checking for intersecting points..."
-    );
-
     // Find all existing graph points that intersect with the legacy NavMesh
     const intersectingPoints: string[] = [];
 
@@ -935,6 +1036,7 @@ export class Pathfinder {
       intersectingPoints
     );
 
+    // Create virtual portal points and connect them to original points
     for (const pointId of intersectingPoints) {
       const point = this._map.points[pointId];
       const virtualPointId = constants.createLegacyPortalId(pointId);
@@ -950,11 +1052,79 @@ export class Pathfinder {
       this.addLegacyConnection(pointId, virtualPointId, point, projectedPoint);
     }
 
-    // Connect virtual points within the legacy NavMesh
-    await this.connectVirtualPointsWithinLegacyNavMesh(
+    // PRECOMPUTE ALL PORTAL-TO-PORTAL CONNECTIONS
+    // This is the key change - treat legacy NavMesh like an area
+    await this.precomputeLegacyPortalConnections(
       this._legacyPortalPoints,
       lnmQuery
     );
+  }
+
+  private async precomputeLegacyPortalConnections(
+    virtualPoints: Map<string, THREE.Vector3Like>,
+    navMeshQuery: NavMeshQuery
+  ): Promise<void> {
+    const virtualPointIds = Array.from(virtualPoints.keys());
+
+    // Precompute distances between ALL pairs of portal points
+    // This is exactly like initializeAreaDistances but for legacy portals
+    for (let i = 0; i < virtualPointIds.length; i++) {
+      for (let j = i + 1; j < virtualPointIds.length; j++) {
+        const fromId = virtualPointIds[i];
+        const toId = virtualPointIds[j];
+
+        const fromPoint = virtualPoints.get(fromId)!;
+        const toPoint = virtualPoints.get(toId)!;
+
+        // Use NavMesh to find path between virtual points
+        const fromV3 = new THREE.Vector3().copy(fromPoint);
+        const toV3 = new THREE.Vector3().copy(toPoint);
+
+        try {
+          const path = navMeshQuery.computePath(fromV3, toV3);
+
+          if (path.success && path.path) {
+            // Ensure both points are initialized in adjacency list
+            if (!this._adjacencyList.has(fromId)) {
+              this._adjacencyList.set(fromId, []);
+            }
+            if (!this._adjacencyList.has(toId)) {
+              this._adjacencyList.set(toId, []);
+            }
+
+            // Add bidirectional connection
+            this._adjacencyList.get(fromId)!.push(toId);
+            this._adjacencyList.get(toId)!.push(fromId);
+
+            // Store precomputed path and distance
+            const distance = geometry.calculatePathLength(path.path);
+            this._edgeWeights.set(
+              constants.createEdgeWeightKey(fromId, toId),
+              distance
+            );
+            this._edgeWeights.set(
+              constants.createEdgeWeightKey(toId, fromId),
+              distance
+            );
+
+            // Store the actual path for reconstruction
+            this._precomputedAreaPaths.set(
+              constants.createEdgeWeightKey(fromId, toId),
+              path.path
+            );
+            this._precomputedAreaPaths.set(
+              constants.createEdgeWeightKey(toId, fromId),
+              path.path.toReversed()
+            );
+          }
+        } catch (error) {
+          console.error(
+            `Failed to compute path between ${fromId} and ${toId}:`,
+            error
+          );
+        }
+      }
+    }
   }
 
   private addLegacyConnection(
@@ -980,63 +1150,6 @@ export class Pathfinder {
       constants.createEdgeWeightKey(toPointId, fromPointId),
       weight
     );
-  }
-
-  private async connectVirtualPointsWithinLegacyNavMesh(
-    virtualPoints: Map<string, THREE.Vector3Like>,
-    navMeshQuery: NavMeshQuery
-  ): Promise<void> {
-    const virtualPointIds = Array.from(virtualPoints.keys());
-
-    // Connect all virtual points within the legacy NavMesh using NavMesh pathfinding
-    for (let i = 0; i < virtualPointIds.length; i++) {
-      for (let j = i + 1; j < virtualPointIds.length; j++) {
-        const fromId = virtualPointIds[i];
-        const toId = virtualPointIds[j];
-
-        const fromPoint = virtualPoints.get(fromId)!;
-        const toPoint = virtualPoints.get(toId)!;
-
-        // Use NavMesh to find path between virtual points
-        const fromV3 = new THREE.Vector3().copy(fromPoint);
-        const toV3 = new THREE.Vector3().copy(toPoint);
-
-        try {
-          const path = navMeshQuery.computePath(fromV3, toV3);
-
-          if (path.success && path.path) {
-            // Add bidirectional connection
-            this._adjacencyList.get(fromId)!.push(toId);
-            this._adjacencyList.get(toId)!.push(fromId);
-
-            // Store precomputed path and distance
-            const distance = geometry.calculatePathLength(path.path);
-            this._edgeWeights.set(
-              constants.createEdgeWeightKey(fromId, toId),
-              distance
-            );
-            this._edgeWeights.set(
-              constants.createEdgeWeightKey(toId, fromId),
-              distance
-            );
-
-            this._precomputedAreaPaths.set(
-              constants.createEdgeWeightKey(fromId, toId),
-              path.path
-            );
-            this._precomputedAreaPaths.set(
-              constants.createEdgeWeightKey(toId, fromId),
-              path.path.toReversed()
-            );
-          }
-        } catch (error) {
-          console.error(
-            `Failed to compute path between ${fromId} and ${toId}:`,
-            error
-          );
-        }
-      }
-    }
   }
 
   private async initializeAreaDistances(): Promise<void> {
