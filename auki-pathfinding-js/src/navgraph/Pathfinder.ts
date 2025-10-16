@@ -612,7 +612,7 @@ export class Pathfinder {
       // Regular edge handling (only for non-legacy edges)
       const fromPosition = new THREE.Vector3().copy(fromResult.position);
 
-      if (!fromEdge!.dir || fromIsAreaEdge) {
+      if (!fromEdge?.dir || fromIsAreaEdge) {
         // Two-way edge - connect to both points with actual distances
         const fromPoint = this.getMapPoint(fromResult.fromPointId);
         const toPoint = this.getMapPoint(fromResult.toPointId);
@@ -648,7 +648,7 @@ export class Pathfinder {
             distToTo
           );
         }
-      } else if (fromEdge!.dir === 1) {
+      } else if (fromEdge?.dir === 1) {
         // One-way edge - only connect to fromPoint
         const fromPoint = this.getMapPoint(fromResult.fromPointId);
         if (fromPoint) {
@@ -666,7 +666,7 @@ export class Pathfinder {
             distToFrom
           );
         }
-      } else if (fromEdge!.dir === -1) {
+      } else if (fromEdge?.dir === -1) {
         // One-way-reverse edge - only connect to toPoint
         const toPoint = this.getMapPoint(fromResult.toPointId);
         if (toPoint) {
@@ -720,6 +720,7 @@ export class Pathfinder {
           const toV3 = new THREE.Vector3().copy(toResult.position);
 
           const path = legacyNavMeshQuery.computePath(fromV3, toV3);
+
           if (path.success && path.path) {
             const pathLength = geometry.calculatePathLength(path.path);
 
@@ -857,7 +858,7 @@ export class Pathfinder {
       // Regular edge handling (only for non-legacy edges)
       const toPosition = new THREE.Vector3().copy(toResult.position);
 
-      if (!toEdge!.dir || toIsAreaEdge) {
+      if (!toEdge?.dir || toIsAreaEdge) {
         // Two-way edge - connect to both points with actual distances
         const fromPoint = this.getMapPoint(toResult.fromPointId);
         const toPoint = this.getMapPoint(toResult.toPointId);
@@ -893,7 +894,7 @@ export class Pathfinder {
             distToTo
           );
         }
-      } else if (toEdge!.dir === 1) {
+      } else if (toEdge?.dir === 1) {
         // One-way edge - only connect to fromPoint
         const fromPoint = this.getMapPoint(toResult.fromPointId);
         if (fromPoint) {
@@ -911,7 +912,7 @@ export class Pathfinder {
             distToFrom
           );
         }
-      } else if (toEdge!.dir === -1) {
+      } else if (toEdge?.dir === -1) {
         // One-way-reverse edge - only connect to toPoint
         const toPoint = this.getMapPoint(toResult.toPointId);
         if (toPoint) {
