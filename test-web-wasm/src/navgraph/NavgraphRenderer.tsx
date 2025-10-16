@@ -42,7 +42,7 @@ export default function NavgraphRenderer() {
 
   useEffect(() => {
     const asyncLoad = async () => {
-      await pathfinder.load(TestNavData, legacyNavmesh);
+      await pathfinder.load(navMap, legacyNavmesh);
       //kickstart the first pathfinding
       setStart({ ...start });
     };
