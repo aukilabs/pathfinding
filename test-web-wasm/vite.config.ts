@@ -7,4 +7,14 @@ import svgr from "vite-plugin-svgr";
 export default defineConfig({
   plugins: [react(), tailwindcss(), svgr()],
   resolve: { preserveSymlinks: true },
+  server: {
+    headers: {
+      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Opener-Policy": "same-origin",
+    },
+  },
+  optimizeDeps: {
+    exclude: ["auki-pathfinding/wasm"],
+  },
+  assetsInclude: ["**/*.wasm"],
 });

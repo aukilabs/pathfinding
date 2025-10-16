@@ -7,6 +7,13 @@ import { useNavgraphDisplayState } from "./NavgraphDisplayState";
 import { TestNavData } from "./TestNavGraph";
 import * as constants from "auki-pathfinding";
 import { createMeshes } from "./TestLegacyNavmesh";
+import { initialize, add } from "auki-pathfinding/wasm";
+
+initialize().then(() => {
+  console.log("WASM initialized");
+  const result = add(5, 2);
+  console.log("WSM add Result: ", result);
+});
 
 export default function NavgraphRenderer() {
   const displayState = useNavgraphDisplayState();

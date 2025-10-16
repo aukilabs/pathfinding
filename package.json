@@ -1,6 +1,7 @@
 {
   "name": "pathfinding-repo",
   "scripts": {
-    "setup": "cd auki-pathfinding-js && npm install && npm run build && cd ../nav-testbed && npm install"
+    "buildjs": "cd auki-pathfinding-js && npm install && npm run build && cd ../nav-testbed && npm install",
+    "buildwasm": "cd auki-pathfinding-rs && uniffi-bindgen-wasm generate --library auki-pathfinding-rs/target/release/libauki_pathfinding.dylib --out-dir ../auki-pathfinding-js/wasm"
   }
 }
