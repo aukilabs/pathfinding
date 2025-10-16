@@ -1,0 +1,22 @@
+[package]
+name = "auki-pathfinding"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+# Empty workspace declaration to prevent inheriting parent workspace
+
+[dependencies]
+uniffi = { version = "0.29", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.29", features = ["build"] }
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+
