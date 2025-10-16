@@ -7,6 +7,8 @@ edition = "2021"
 # Empty workspace declaration to prevent inheriting parent workspace
 
 [dependencies]
+divert = "0.6.0"
+earcut = "0.4.4"
 uniffi = { version = "0.29", features = ["cli"] }
 
 [build-dependencies]
