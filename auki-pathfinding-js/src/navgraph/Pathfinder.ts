@@ -572,40 +572,54 @@ export class Pathfinder {
     // Handle area edges by computing NavMesh paths to nearest exit points
     else if (fromIsAreaEdge) {
       const areaId = fromEdgeAreas[0];
-      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
-      const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
-      if (exitPoints.length > 0 && navMeshQuery) {
-        const connectedExits: string[] = [];
+      const bothInSameArea = toIsAreaEdge && toEdgeAreas[0] === areaId;
 
-        // Compute NavMesh path to ALL exit points
-        for (const exitId of exitPoints) {
-          try {
-            const fromV3 = new THREE.Vector3().copy(fromResult.position);
-            const toV3 = new THREE.Vector3().copy(this.getMapPoint(exitId)!);
+      if (!bothInSameArea) {
+        const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+        const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
-            const path = navMeshQuery.computePath(fromV3, toV3);
-            if (path.success && path.path) {
-              // Store the computed path for later reconstruction
-              tempPaths.set(
-                constants.createFromIntermediatePathKey(exitId),
-                path.path
+        if (exitPoints.length > 0 && navMeshQuery) {
+          const connectedExits: string[] = [];
+
+          // Compute NavMesh path to ALL exit points
+          for (const exitId of exitPoints) {
+            try {
+              const fromV3 = new THREE.Vector3().copy(fromResult.position);
+              const toV3 = new THREE.Vector3().copy(this.getMapPoint(exitId)!);
+
+              const path = navMeshQuery.computePath(fromV3, toV3);
+              if (path.success && path.path) {
+                // Store the computed path for later reconstruction
+                tempPaths.set(
+                  constants.createFromIntermediatePathKey(exitId),
+                  path.path
+                );
+
+                // Add this exit to connected exits
+                connectedExits.push(exitId);
+              }
+            } catch (error) {
+              console.error(
+                `Failed to compute NavMesh path to exit ${exitId}:`,
+                error
               );
-
-              // Add this exit to connected exits
-              connectedExits.push(exitId);
             }
-          } catch (error) {
-            console.error(
-              `Failed to compute NavMesh path to exit ${exitId}:`,
-              error
+          }
+
+          // Connect intermediate point to ALL successful exits
+          if (connectedExits.length > 0) {
+            const existingFromNeighbors =
+              tempAdjacencyList.get(constants.FROM_INTERMEDIATE) || [];
+            const allFromNeighbors = [
+              ...existingFromNeighbors,
+              ...connectedExits,
+            ];
+            tempAdjacencyList.set(
+              constants.FROM_INTERMEDIATE,
+              allFromNeighbors
             );
           }
-        }
-
-        // Connect intermediate point to ALL successful exits
-        if (connectedExits.length > 0) {
-          tempAdjacencyList.set(constants.FROM_INTERMEDIATE, connectedExits);
         }
       }
     } else if (!fromIsLegacyEdge) {
@@ -761,6 +775,60 @@ export class Pathfinder {
       }
     }
 
+    // Special case: handle same-area direct connections
+    if (fromIsAreaEdge && toIsAreaEdge && fromEdgeAreas[0] === toEdgeAreas[0]) {
+      // Both 'from' and 'to' are in the same area - check for direct connection
+      console.log("Handling same-area direct connections");
+      const areaId = fromEdgeAreas[0];
+      const navMeshQuery = this._areaNavMeshQueries.get(areaId);
+
+      if (navMeshQuery) {
+        try {
+          const fromV3 = new THREE.Vector3().copy(fromResult.position);
+          const toV3 = new THREE.Vector3().copy(toResult.position);
+
+          const path = navMeshQuery.computePath(fromV3, toV3);
+
+          if (path.success && path.path) {
+            const pathLength = geometry.calculatePathLength(path.path);
+
+            // Store the direct path
+            tempPaths.set(constants.createDirectPathKey(), path.path);
+
+            // Store the edge weight for Dijkstra
+            const directEdgeKey1 = constants.createEdgeWeightKey(
+              constants.FROM_INTERMEDIATE,
+              constants.TO_INTERMEDIATE
+            );
+            const directEdgeKey2 = constants.createEdgeWeightKey(
+              constants.TO_INTERMEDIATE,
+              constants.FROM_INTERMEDIATE
+            );
+
+            this._edgeWeights.set(directEdgeKey1, pathLength);
+            this._edgeWeights.set(directEdgeKey2, pathLength);
+
+            // Add direct connection to adjacency list
+            const fromNeighbors =
+              tempAdjacencyList.get(constants.FROM_INTERMEDIATE) || [];
+            if (!fromNeighbors.includes(constants.TO_INTERMEDIATE)) {
+              fromNeighbors.push(constants.TO_INTERMEDIATE);
+            }
+            tempAdjacencyList.set(constants.FROM_INTERMEDIATE, fromNeighbors);
+
+            const toNeighbors =
+              tempAdjacencyList.get(constants.TO_INTERMEDIATE) || [];
+            if (!toNeighbors.includes(constants.FROM_INTERMEDIATE)) {
+              toNeighbors.push(constants.FROM_INTERMEDIATE);
+            }
+            tempAdjacencyList.set(constants.TO_INTERMEDIATE, toNeighbors);
+          }
+        } catch (error) {
+          console.error("Failed to compute direct same-area path:", error);
+        }
+      }
+    }
+
     // Handle legacy NavMesh edges for 'to'
     if (toIsLegacyEdge) {
       const legacyNavMeshQuery = this._legacyNavMeshQuery;
@@ -813,45 +881,56 @@ export class Pathfinder {
     // Handle area edges for 'to'
     else if (toIsAreaEdge) {
       const areaId = toEdgeAreas[0];
-      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
-      const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
-      if (exitPoints.length > 0 && navMeshQuery) {
-        const connectedExits: string[] = [];
+      // Check if both points are in the same area - if so, skip exit connections
+      const bothInSameArea = fromIsAreaEdge && fromEdgeAreas[0] === areaId;
 
-        // Compute NavMesh path from ALL exit points
-        for (const exitId of exitPoints) {
-          try {
-            const fromV3 = new THREE.Vector3().copy(this.getMapPoint(exitId)!);
-            const toV3 = new THREE.Vector3().copy(toResult.position);
+      if (!bothInSameArea) {
+        const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+        const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
-            const path = navMeshQuery.computePath(fromV3, toV3);
-            if (path.success && path.path) {
-              // Store the computed path for later reconstruction
-              tempPaths.set(
-                constants.createToIntermediatePathKey(exitId),
-                path.path
+        if (exitPoints.length > 0 && navMeshQuery) {
+          const connectedExits: string[] = [];
+
+          // Compute NavMesh path from ALL exit points
+          for (const exitId of exitPoints) {
+            try {
+              const fromV3 = new THREE.Vector3().copy(
+                this.getMapPoint(exitId)!
               );
+              const toV3 = new THREE.Vector3().copy(toResult.position);
 
-              // Add this exit to connected exits
-              connectedExits.push(exitId);
+              const path = navMeshQuery.computePath(fromV3, toV3);
+              if (path.success && path.path) {
+                // Store the computed path for later reconstruction
+                tempPaths.set(
+                  constants.createToIntermediatePathKey(exitId),
+                  path.path
+                );
+
+                // Add this exit to connected exits
+                connectedExits.push(exitId);
+              }
+            } catch (error) {
+              console.error(
+                `Failed to compute NavMesh path from exit ${exitId}:`,
+                error
+              );
             }
-          } catch (error) {
-            console.error(
-              `Failed to compute NavMesh path from exit ${exitId}:`,
-              error
-            );
           }
-        }
 
-        // Connect ALL successful exits to intermediate point
-        if (connectedExits.length > 0) {
-          tempAdjacencyList.set(constants.TO_INTERMEDIATE, connectedExits);
+          // Connect ALL successful exits to intermediate point
+          if (connectedExits.length > 0) {
+            const existingToNeighbors =
+              tempAdjacencyList.get(constants.TO_INTERMEDIATE) || [];
+            const allToNeighbors = [...existingToNeighbors, ...connectedExits];
+            tempAdjacencyList.set(constants.TO_INTERMEDIATE, allToNeighbors);
 
-          // Also add reverse connections from intermediate to exits
-          connectedExits.forEach((exitId) => {
-            tempAdjacencyList.get(exitId)!.push(constants.TO_INTERMEDIATE);
-          });
+            // Also add reverse connections from intermediate to exits
+            connectedExits.forEach((exitId) => {
+              tempAdjacencyList.get(exitId)!.push(constants.TO_INTERMEDIATE);
+            });
+          }
         }
       }
     } else if (!toIsLegacyEdge) {
