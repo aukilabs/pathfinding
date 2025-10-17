@@ -280,8 +280,8 @@ export default function NavgraphRenderer({}: {}) {
                   navMap.points[edge.to].z,
                 ],
               ]}
-              color="#FF0000"
-              linewidth={1}
+              color="#AA0000"
+              linewidth={0.75}
               dashed={!!edge.dir}
               dashSize={0.1}
               gapSize={0.1}
@@ -380,7 +380,7 @@ export default function NavgraphRenderer({}: {}) {
                     [currentPoint.x, currentPoint.y ?? 0, currentPoint.z],
                     [nextPoint.x, nextPoint.y ?? 0, nextPoint.z],
                   ]}
-                  color="#00FF00"
+                  color="#007700"
                   linewidth={3}
                   dashed={false}
                   depthTest={false}
@@ -429,7 +429,7 @@ export default function NavgraphRenderer({}: {}) {
                 position={[0, 0.01, 0]}
               >
                 <meshBasicMaterial
-                  color="#38bdf8"
+                  color="#c8cd88"
                   depthWrite={true}
                   depthTest={true}
                 />

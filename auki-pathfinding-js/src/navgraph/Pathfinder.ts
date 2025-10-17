@@ -7,7 +7,7 @@ import * as mapUtils from "./GraphUtils";
 import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
-import earcut from "earcut";
+const { createEdgeWeightKey } = constants;
 
 export type NavOptions = {
   maxDistance?: number;
@@ -149,33 +149,24 @@ export class Pathfinder {
         // Calculate edge weight (distance)
         const weight = geometry.calculateDistance(fromPoint, toPoint);
 
+        const fromToKey = createEdgeWeightKey(edge.from, edge.to);
+        const toFromKey = createEdgeWeightKey(edge.to, edge.from);
+
         if (!edge.dir) {
           // Two-way edge - add bidirectional connections
           this._adjacencyList.get(edge.from)!.push(edge.to);
           this._adjacencyList.get(edge.to)!.push(edge.from);
 
-          this._edgeWeights.set(
-            constants.createEdgeWeightKey(edge.from, edge.to),
-            weight
-          );
-          this._edgeWeights.set(
-            constants.createEdgeWeightKey(edge.to, edge.from),
-            weight
-          );
+          this._edgeWeights.set(fromToKey, weight);
+          this._edgeWeights.set(toFromKey, weight);
         } else if (edge.dir === 1) {
           // One-way edge - only add from -> to connection
           this._adjacencyList.get(edge.from)!.push(edge.to);
-          this._edgeWeights.set(
-            constants.createEdgeWeightKey(edge.from, edge.to),
-            weight
-          );
+          this._edgeWeights.set(fromToKey, weight);
         } else if (edge.dir === -1) {
           // One-way-reverse edge - only add to -> from connection
           this._adjacencyList.get(edge.to)!.push(edge.from);
-          this._edgeWeights.set(
-            constants.createEdgeWeightKey(edge.to, edge.from),
-            weight
-          );
+          this._edgeWeights.set(toFromKey, weight);
         }
       }
     });
@@ -398,10 +389,7 @@ export class Pathfinder {
     tempPaths: Map<string, THREE.Vector3Like[]>,
     pathKey: string
   ): void {
-    this._edgeWeights.set(
-      constants.createEdgeWeightKey(fromId, toId),
-      distance
-    );
+    this._edgeWeights.set(createEdgeWeightKey(fromId, toId), distance);
     tempPaths.set(pathKey, path);
   }
 
@@ -458,7 +446,8 @@ export class Pathfinder {
         const navMeshDistance = geometry.calculatePathLength(path.path);
 
         // Check if there's already a graph edge between these points
-        const existingWeightKey = constants.createEdgeWeightKey(fromId, toId);
+        const existingWeightKey = createEdgeWeightKey(fromId, toId);
+        const invertedKey = createEdgeWeightKey(toId, fromId);
         const existingWeight = this._edgeWeights.get(existingWeightKey);
 
         // Always add connection to adjacency list and store NavMesh path for reconstruction
@@ -467,18 +456,12 @@ export class Pathfinder {
 
         // Store the actual path for reconstruction
         this._precomputedAreaPaths.set(existingWeightKey, path.path);
-        this._precomputedAreaPaths.set(
-          constants.createEdgeWeightKey(toId, fromId),
-          path.path.toReversed()
-        );
+        this._precomputedAreaPaths.set(invertedKey, path.path.toReversed());
 
         // Only update edge weights if there's no existing edge, or if NavMesh is shorter
         if (!existingWeight || navMeshDistance < existingWeight) {
           this._edgeWeights.set(existingWeightKey, navMeshDistance);
-          this._edgeWeights.set(
-            constants.createEdgeWeightKey(toId, fromId),
-            navMeshDistance
-          );
+          this._edgeWeights.set(invertedKey, navMeshDistance);
         }
         return true;
       }
@@ -543,7 +526,7 @@ export class Pathfinder {
       const distance = new THREE.Vector3().copy(point).distanceTo(fromPosition);
       tempAdjacencyList.get(pointId)!.push(constants.FROM_INTERMEDIATE);
       this._edgeWeights.set(
-        constants.createEdgeWeightKey(constants.FROM_INTERMEDIATE, pointId),
+        createEdgeWeightKey(constants.FROM_INTERMEDIATE, pointId),
         distance
       );
     }
@@ -593,7 +576,7 @@ export class Pathfinder {
       const distance = new THREE.Vector3().copy(point).distanceTo(toPosition);
       tempAdjacencyList.get(pointId)!.push(constants.TO_INTERMEDIATE);
       this._edgeWeights.set(
-        constants.createEdgeWeightKey(pointId, constants.TO_INTERMEDIATE),
+        createEdgeWeightKey(pointId, constants.TO_INTERMEDIATE),
         distance
       );
     }
@@ -734,7 +717,7 @@ export class Pathfinder {
                   path.path
                 );
                 // Store the actual path length for Dijkstra
-                const storedKey = constants.createEdgeWeightKey(
+                const storedKey = createEdgeWeightKey(
                   constants.FROM_INTERMEDIATE,
                   pointId
                 );
@@ -906,7 +889,7 @@ export class Pathfinder {
 
         if (success) {
           const pathLength = this._edgeWeights.get(
-            constants.createEdgeWeightKey(
+            createEdgeWeightKey(
               constants.FROM_INTERMEDIATE,
               constants.TO_INTERMEDIATE
             )
@@ -943,7 +926,7 @@ export class Pathfinder {
                   path.path
                 );
                 // Store the actual path length for Dijkstra
-                const storedKey = constants.createEdgeWeightKey(
+                const storedKey = createEdgeWeightKey(
                   pointId,
                   constants.TO_INTERMEDIATE
                 );
@@ -1076,7 +1059,7 @@ export class Pathfinder {
       for (const neighbor of neighbors) {
         if (visited.has(neighbor)) continue;
 
-        const edgeWeightKey = constants.createEdgeWeightKey(current, neighbor);
+        const edgeWeightKey = createEdgeWeightKey(current, neighbor);
         const edgeWeight = mapUtils.getEdgeWeight(
           this._edgeWeights,
           current,
@@ -1313,23 +1296,14 @@ export class Pathfinder {
             if (path.success && path.path) {
               const distance = geometry.calculatePathLength(path.path);
 
+              const fromToKey = createEdgeWeightKey(fromPointId, toPointId);
+              const toFromKey = createEdgeWeightKey(toPointId, fromPointId);
+
               // Store both directions
-              this._edgeWeights.set(
-                constants.createEdgeWeightKey(fromPointId, toPointId),
-                distance
-              );
-              this._edgeWeights.set(
-                constants.createEdgeWeightKey(toPointId, fromPointId),
-                distance
-              );
-              this._precomputedAreaPaths.set(
-                constants.createEdgeWeightKey(fromPointId, toPointId),
-                path.path
-              );
-              this._precomputedAreaPaths.set(
-                constants.createEdgeWeightKey(toPointId, fromPointId),
-                path.path.toReversed()
-              );
+              this._edgeWeights.set(fromToKey, distance);
+              this._edgeWeights.set(toFromKey, distance);
+              this._precomputedAreaPaths.set(fromToKey, path.path);
+              this._precomputedAreaPaths.set(toFromKey, path.path.toReversed());
             }
           }
         }
