@@ -34,7 +34,6 @@ export function getNearestPositionOnLegacyNavMesh(
   distance: number;
 } | null {
   if (!legacyNavMeshQuery) {
-    console.log("No legacy NavMesh query available");
     return null;
   }
 
@@ -64,43 +63,4 @@ export function getNearestPositionOnLegacyNavMesh(
   }
 
   return null;
-}
-
-export function findClosestLegacyPortal(
-  legacyPortalPoints: Map<string, THREE.Vector3Like>,
-  position: THREE.Vector3Like
-): string | null {
-  let closestPortal: string | null = null;
-  let minDistance = Infinity;
-
-  legacyPortalPoints.forEach((portalPoint, portalId) => {
-    const distance = geometry.calculateDistance(position, portalPoint);
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestPortal = portalId;
-    }
-  });
-
-  return closestPortal;
-}
-
-export function projectPointOntoLegacyNavMesh(
-  point: THREE.Vector3Like,
-  navMeshQuery: NavMeshQuery
-): THREE.Vector3Like {
-  const pointV3 = new THREE.Vector3(point.x, point.y, point.z);
-
-  try {
-    const result = navMeshQuery.findClosestPoint(pointV3, {
-      halfExtents: new THREE.Vector3(100, 10, 100),
-    });
-    if (result.success && result.point) {
-      return result.point;
-    }
-  } catch (error) {
-    console.error("Error projecting point onto legacy NavMesh:", error);
-  }
-
-  // Fallback to original point if projection fails
-  return point;
 }

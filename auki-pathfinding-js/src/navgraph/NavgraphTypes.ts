@@ -6,6 +6,7 @@ export type Edge = {
   from: string;
   to: string;
   dir?: EdgeDirection;
+  weightMultiplier?: number; // Optional weight multiplier (default: 1.0)
 };
 export type Area = { points: string[] };
 export type Points = Record<string, Point>;

@@ -37,37 +37,6 @@ export function chooseClosestResult(
   }
 }
 
-export function estimatePortalPathLength(
-  legacyPortalPoints: Map<string, THREE.Vector3Like>,
-  from: THREE.Vector3Like,
-  to: THREE.Vector3Like
-): number {
-  // Find closest portals to both points
-  const fromPortal = legacyQuery.findClosestLegacyPortal(
-    legacyPortalPoints,
-    from
-  );
-  const toPortal = legacyQuery.findClosestLegacyPortal(legacyPortalPoints, to);
-
-  if (!fromPortal || !toPortal) return Infinity;
-
-  // Calculate distances: from -> fromPortal -> toPortal -> to
-  const fromToPortal = geometry.calculateDistance(
-    from,
-    legacyPortalPoints.get(fromPortal)!
-  );
-  const portalToPortal = geometry.calculateDistance(
-    legacyPortalPoints.get(fromPortal)!,
-    legacyPortalPoints.get(toPortal)!
-  );
-  const portalToTo = geometry.calculateDistance(
-    legacyPortalPoints.get(toPortal)!,
-    to
-  );
-
-  return fromToPortal + portalToPortal + portalToTo;
-}
-
 export function reconstructPath(
   previous: Map<string, string | null>,
   from: string,

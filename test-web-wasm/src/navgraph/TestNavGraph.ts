@@ -34,7 +34,7 @@ export const TestNavData: NavMap = {
   },
   edges: {
     e28: { from: "p20", to: "p34" },
-    e29: { from: "p21", to: "p22" },
+    e29: { from: "p21", to: "p22", weightMultiplier: 5.0 },
     e30: { from: "p23", to: "p43", dir: 1 },
     e31: { from: "p25", to: "p24" },
     e32: { from: "p25", to: "p26" },

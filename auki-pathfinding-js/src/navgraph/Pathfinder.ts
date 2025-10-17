@@ -169,15 +169,11 @@ export class Pathfinder {
         // Calculate edge weight (distance)
         let weight = geometry.calculateDistance(fromPoint, toPoint);
 
-        // TEST: Override p21-p22 direct edge weight to test legacy NavMesh fallback
-        // weight =
-        //   (edge.from === "p21" && edge.to === "p22") ||
-        //   (edge.from === "p22" && edge.to === "p21")
-        //     ? 1000
-        //     : weight;
-
-        const fromToKey = createEdgeWeightKey(edge.from, edge.to);
-        const toFromKey = createEdgeWeightKey(edge.to, edge.from);
+        // Apply weight multiplier if specified
+        const weightMultiplier = edge.weightMultiplier;
+        if (weightMultiplier !== undefined) {
+          weight *= weightMultiplier;
+        }
 
         if (!edge.dir) {
           // Two-way edge - add bidirectional connections
@@ -304,14 +300,9 @@ export class Pathfinder {
 
     if (!graphPath) {
       console.log("No path found between intermediate points");
-      console.log(
-        "Available nodes in temp graph:",
-        Array.from(tempAdjacencyList.keys())
-      );
+
       return null;
     }
-
-    console.log("Graph path found:", graphPath, fromResult, toResult, from, to);
 
     // Convert to world coordinates
     return this.convertGraphPathToWorldPath(
@@ -392,20 +383,11 @@ export class Pathfinder {
               conn.weight < min.weight ? conn : min
             );
 
-            console.log(
-              `Using ${
-                chosenConnection.type
-              } path: ${currentNode} → ${nextNode} (weight: ${chosenConnection.weight.toFixed(
-                2
-              )})`
-            );
             fullPath.push(...chosenConnection.path);
             i++; // Skip next node since we've already processed it
             continue;
           } else {
-            console.log(
-              `No precomputed path found for: ${currentNode} → ${nextNode}`
-            );
+            // No precomputed path found, just add the point
           }
         }
 
@@ -535,20 +517,21 @@ export class Pathfinder {
         const invertedKey = createEdgeWeightKey(toId, fromId);
         const existingConnections =
           this._edgeWeights.get(existingWeightKey) || [];
+        const invertedConnections = this._edgeWeights.get(invertedKey) || [];
 
         // Always add connection to adjacency list
         this._adjacencyList.get(fromId)!.push(toId);
         this._adjacencyList.get(toId)!.push(fromId);
 
-        // Check if there's already a legacy connection
-        const hasLegacyConnection = existingConnections.some(
-          (conn) => conn.type === "legacy"
-        );
+        // Check if there's already a legacy connection in either direction
+        const hasLegacyConnection =
+          existingConnections.some((conn) => conn.type === "legacy") ||
+          invertedConnections.some((conn) => conn.type === "legacy");
 
         // Only add legacy connection if it doesn't exist or if this one is shorter
-        const existingLegacyConnection = existingConnections.find(
-          (c) => c.type === "legacy"
-        );
+        const existingLegacyConnection =
+          existingConnections.find((c) => c.type === "legacy") ||
+          invertedConnections.find((c) => c.type === "legacy");
         if (
           !hasLegacyConnection ||
           (existingLegacyConnection &&
@@ -989,7 +972,6 @@ export class Pathfinder {
     // Special case: handle same-area direct connections
     if (fromIsAreaEdge && toIsAreaEdge && fromEdgeAreas[0] === toEdgeAreas[0]) {
       // Both 'from' and 'to' are in the same area - check for direct connection
-      console.log("Handling same-area direct connections");
       const areaId = fromEdgeAreas[0];
       const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
@@ -1335,22 +1317,17 @@ export class Pathfinder {
       return;
     }
 
-    console.log("Successfully created legacy NavMesh");
-
     this._legacyNavMesh = nmResult.navMesh;
     this._legacyNavMeshQuery = new NavMeshQuery(nmResult.navMesh);
   }
 
   private async initializeLegacyAreaConnections(): Promise<void> {
-    console.log("Initializing legacy area connections...");
     if (!this._map) {
-      console.log("No map available");
       return;
     }
 
     const lnmQuery = this._legacyNavMeshQuery;
     if (!lnmQuery) {
-      console.log("No legacy NavMesh query available");
       return;
     }
 
@@ -1363,24 +1340,6 @@ export class Pathfinder {
       }
     });
 
-    console.log(
-      `Found ${intersectingPoints.length} graph points intersecting with legacy NavMesh:`,
-      intersectingPoints
-    );
-
-    // Debug: Check if p22 and p21 are both detected
-    if (
-      intersectingPoints.includes("p22") &&
-      intersectingPoints.includes("p21")
-    ) {
-      console.log("✅ Both p22 and p21 are detected as on legacy NavMesh");
-    } else {
-      console.log("❌ Missing legacy NavMesh detection:", {
-        p22: intersectingPoints.includes("p22"),
-        p21: intersectingPoints.includes("p21"),
-      });
-    }
-
     // Add direct NavMesh connections between all pairs of intersecting points
     // This treats the legacy NavMesh like an area with precomputed internal connections
     await this.addDirectLegacyNavMeshConnections(intersectingPoints, lnmQuery);
@@ -1390,8 +1349,6 @@ export class Pathfinder {
     intersectingPoints: string[],
     navMeshQuery: NavMeshQuery
   ): Promise<void> {
-    console.log("Adding direct legacy NavMesh connections...");
-
     // Add direct NavMesh connections between all pairs of intersecting points
     for (let i = 0; i < intersectingPoints.length; i++) {
       for (let j = i + 1; j < intersectingPoints.length; j++) {
@@ -1445,9 +1402,6 @@ export class Pathfinder {
             const path = navMesh.computePath(from, to);
             if (path.success && path.path) {
               const distance = geometry.calculatePathLength(path.path);
-
-              const fromToKey = createEdgeWeightKey(fromPointId, toPointId);
-              const toFromKey = createEdgeWeightKey(toPointId, fromPointId);
 
               // Store both directions
               this.addEdgeWeightConnection(fromPointId, toPointId, {
