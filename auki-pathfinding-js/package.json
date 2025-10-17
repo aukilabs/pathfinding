@@ -1,9 +1,29 @@
 {
   "name": "auki-pathfinding",
   "version": "1.0.0",
-  "description": "Local pathfinding package for testing",
+  "description": "Hybrid pathfinding library combining navigation graphs with Recast/Detour NavMeshes",
+  "keywords": [
+    "pathfinding",
+    "navigation",
+    "three.js",
+    "navmesh",
+    "recast",
+    "detour"
+  ],
+  "author": "Auki Labs",
+  "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./wasm": {
+      "types": "./dist/wasm.d.ts",
+      "import": "./dist/wasm.js"
+    }
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",

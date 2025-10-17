@@ -3,6 +3,7 @@ import { threeToSoloNavMesh } from "@recast-navigation/three";
 import * as THREE from "three";
 import {
   Area,
+  Edge,
   NavMap as NavigationGraph,
   EdgeWeightInfo,
 } from "./NavgraphTypes";
@@ -64,8 +65,36 @@ export class Pathfinder {
     return this._adjacencyList;
   }
 
-  // Getter for map points
-  private getMapPoint(pointId: string): THREE.Vector3Like | null {
+  // Convenience getters for users
+  getMapPoint(pointId: string): THREE.Vector3Like | null {
+    return this._map.points[pointId] || null;
+  }
+
+  getMapEdge(edgeId: string): Edge | null {
+    return this._map.edges[edgeId] || null;
+  }
+
+  getMapArea(areaId: string): Area | null {
+    return this._map.areas[areaId] || null;
+  }
+
+  get allPoints(): Record<string, THREE.Vector3Like> {
+    return { ...this._map.points };
+  }
+
+  get allEdges(): Record<string, Edge> {
+    return { ...this._map.edges };
+  }
+
+  get allAreas(): Record<string, Area> {
+    return { ...this._map.areas };
+  }
+
+  get legacyMeshes(): THREE.Mesh[] {
+    return [...this._legacyMeshes];
+  }
+
+  private getMapPointInternal(pointId: string): THREE.Vector3Like | null {
     return this._map?.points[pointId] || null;
   }
 
@@ -93,7 +122,10 @@ export class Pathfinder {
         continue;
       }
 
-      const expandedPolygon = geometry.expandPolygon(polygon, 0.01);
+      const expandedPolygon = geometry.expandPolygon(
+        polygon,
+        constants.DEFAULT_POLYGON_EXPANSION_DISTANCE
+      );
       const triangles = geometry.triangulateArea(expandedPolygon);
       if (!triangles) {
         console.error("failed to triangulate area");
@@ -153,8 +185,8 @@ export class Pathfinder {
 
     // Build connections and calculate weights
     Object.entries(this._map.edges).forEach(([edgeId, edge]) => {
-      const fromPoint = this.getMapPoint(edge.from)!;
-      const toPoint = this.getMapPoint(edge.to)!;
+      const fromPoint = this.getMapPointInternal(edge.from)!;
+      const toPoint = this.getMapPointInternal(edge.to)!;
 
       if (fromPoint && toPoint) {
         // Check if this edge belongs to any area
@@ -392,7 +424,7 @@ export class Pathfinder {
         }
 
         // No precomputed path, just add the point
-        fullPath.push(this.getMapPoint(currentNode)!);
+        fullPath.push(this.getMapPointInternal(currentNode)!);
       }
     }
 
@@ -606,7 +638,7 @@ export class Pathfinder {
     fromPosition: THREE.Vector3Like,
     pointId: string
   ): void {
-    const point = this.getMapPoint(pointId);
+    const point = this.getMapPointInternal(pointId);
     if (point) {
       const distance = new THREE.Vector3().copy(point).distanceTo(fromPosition);
       tempAdjacencyList.get(pointId)!.push(constants.FROM_INTERMEDIATE);
@@ -657,7 +689,7 @@ export class Pathfinder {
     toPosition: THREE.Vector3Like,
     pointId: string
   ): void {
-    const point = this.getMapPoint(pointId);
+    const point = this.getMapPointInternal(pointId);
     if (point) {
       const distance = new THREE.Vector3().copy(point).distanceTo(toPosition);
       tempAdjacencyList.get(pointId)!.push(constants.TO_INTERMEDIATE);
@@ -745,14 +777,6 @@ export class Pathfinder {
           directPath,
           tempPaths,
           constants.createDirectPathKey()
-        );
-
-        console.log(
-          `Added direct legacy NavMesh connection: ${
-            constants.FROM_INTERMEDIATE
-          } ↔ ${constants.TO_INTERMEDIATE} (distance: ${directDistance.toFixed(
-            2
-          )})`
         );
       }
     }
@@ -864,7 +888,9 @@ export class Pathfinder {
           // Compute NavMesh path to ALL exit points
           for (const exitId of exitPoints) {
             const fromV3 = new THREE.Vector3().copy(fromResult.position);
-            const toV3 = new THREE.Vector3().copy(this.getMapPoint(exitId)!);
+            const toV3 = new THREE.Vector3().copy(
+              this.getMapPointInternal(exitId)!
+            );
 
             const success = this.computeNavMeshPathAndConnect(
               navMeshQuery,
@@ -956,12 +982,6 @@ export class Pathfinder {
               tempPaths,
               constants.createDirectPathKey()
             );
-
-            console.log(
-              `Added direct legacy NavMesh connection: ${
-                constants.FROM_INTERMEDIATE
-              } ↔ ${constants.TO_INTERMEDIATE} (${pathLength.toFixed(2)})`
-            );
           }
         } catch (error) {
           console.error("Failed to compute direct legacy NavMesh path:", error);
@@ -979,7 +999,7 @@ export class Pathfinder {
         const fromV3 = new THREE.Vector3().copy(fromResult.position);
         const toV3 = new THREE.Vector3().copy(toResult.position);
 
-        const success = this.computeNavMeshPathAndConnect(
+        this.computeNavMeshPathAndConnect(
           navMeshQuery,
           fromV3,
           toV3,
@@ -989,20 +1009,6 @@ export class Pathfinder {
           tempPaths,
           constants.createDirectPathKey()
         );
-
-        if (success) {
-          const pathLength = this._edgeWeights.get(
-            createEdgeWeightKey(
-              constants.FROM_INTERMEDIATE,
-              constants.TO_INTERMEDIATE
-            )
-          )?.[0]?.weight;
-          console.log(
-            `Added direct same-area connection: ${
-              constants.FROM_INTERMEDIATE
-            } ↔ ${constants.TO_INTERMEDIATE} (${pathLength?.toFixed(2)})`
-          );
-        }
       }
     }
 
@@ -1083,7 +1089,9 @@ export class Pathfinder {
 
           // Compute NavMesh path from ALL exit points
           for (const exitId of exitPoints) {
-            const fromV3 = new THREE.Vector3().copy(this.getMapPoint(exitId)!);
+            const fromV3 = new THREE.Vector3().copy(
+              this.getMapPointInternal(exitId)!
+            );
             const toV3 = new THREE.Vector3().copy(toResult.position);
 
             const success = this.computeNavMeshPathAndConnect(
@@ -1137,7 +1145,6 @@ export class Pathfinder {
     from: string,
     to: string
   ): string[] | null {
-    console.log(`Dijkstra starting: ${from} → ${to}`);
     const distances = new Map<string, number>();
     const previous = new Map<string, string | null>();
     const visited = new Set<string>();
@@ -1210,8 +1217,8 @@ export class Pathfinder {
 
     // Check all edges
     Object.entries(this._map.edges).forEach(([edgeId, edge]) => {
-      const fromPoint = this.getMapPoint(edge.from)!;
-      const toPoint = this.getMapPoint(edge.to)!;
+      const fromPoint = this.getMapPointInternal(edge.from)!;
+      const toPoint = this.getMapPointInternal(edge.to)!;
 
       if (!fromPoint || !toPoint) return;
 
@@ -1291,8 +1298,6 @@ export class Pathfinder {
       );
       return;
     }
-
-    console.log(`Creating legacy NavMesh from ${legacyMeshes.length} meshes`);
 
     let nmResult;
     try {
@@ -1392,8 +1397,8 @@ export class Pathfinder {
           const fromPointId = exitPoints[i];
           const toPointId = exitPoints[j];
 
-          const fromPoint = this.getMapPoint(fromPointId)!;
-          const toPoint = this.getMapPoint(toPointId)!;
+          const fromPoint = this.getMapPointInternal(fromPointId)!;
+          const toPoint = this.getMapPointInternal(toPointId)!;
 
           if (fromPoint && toPoint) {
             const from = new THREE.Vector3().copy(fromPoint);

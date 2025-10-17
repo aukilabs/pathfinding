@@ -10,31 +10,23 @@ export function chooseClosestResult(
   originalPosition: THREE.Vector3Like
 ): any {
   if (!edgeResult && !legacyResult) return null;
-  if (!edgeResult) {
-    // Convert legacy result to edge result format
-    return {
-      position: legacyResult.position,
-      edgeId: constants.LEGACY_NAVMESH_SURFACE_EDGE_ID,
-      fromPointId: constants.LEGACY_PORTAL_FROM_FALLBACK,
-      toPointId: constants.LEGACY_PORTAL_TO_FALLBACK,
-      distance: legacyResult.distance,
-    };
-  }
+  if (!edgeResult) return convertLegacyToEdgeResult(legacyResult);
   if (!legacyResult) return edgeResult;
 
   // Choose the one with smaller distance
-  if (legacyResult.distance < edgeResult.distance) {
-    // Convert legacy result to edge result format
-    return {
-      position: legacyResult.position,
-      edgeId: constants.LEGACY_NAVMESH_SURFACE_EDGE_ID,
-      fromPointId: constants.LEGACY_PORTAL_FROM_FALLBACK,
-      toPointId: constants.LEGACY_PORTAL_TO_FALLBACK,
-      distance: legacyResult.distance,
-    };
-  } else {
-    return edgeResult;
-  }
+  return legacyResult.distance < edgeResult.distance
+    ? convertLegacyToEdgeResult(legacyResult)
+    : edgeResult;
+}
+
+function convertLegacyToEdgeResult(legacyResult: any): any {
+  return {
+    position: legacyResult.position,
+    edgeId: constants.LEGACY_NAVMESH_SURFACE_EDGE_ID,
+    fromPointId: constants.LEGACY_PORTAL_FROM_FALLBACK,
+    toPointId: constants.LEGACY_PORTAL_TO_FALLBACK,
+    distance: legacyResult.distance,
+  };
 }
 
 export function reconstructPath(

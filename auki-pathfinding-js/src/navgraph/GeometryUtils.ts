@@ -1,5 +1,6 @@
 import earcut from "earcut";
 import * as THREE from "three";
+import * as constants from "./Constants";
 
 export function calculateDistance(
   p1: THREE.Vector3Like,
@@ -93,7 +94,7 @@ export function pointsAreEqual(
   p1: THREE.Vector3Like,
   p2: THREE.Vector3Like
 ): boolean {
-  const tolerance = 0.001;
+  const tolerance = constants.POINT_EQUALITY_TOLERANCE;
   return (
     Math.abs(p1.x - p2.x) < tolerance &&
     Math.abs((p1.y ?? 0) - (p2.y ?? 0)) < tolerance &&

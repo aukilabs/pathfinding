@@ -25,9 +25,6 @@ export default function NavgraphRenderer({}: {}) {
   const startRef = useRef<THREE.Object3D>(null);
   const endRef = useRef<THREE.Object3D>(null);
 
-  const legacyNavmesh = useMemo(createMeshes, []);
-  const navMap = editor.crdt.state;
-
   // Initialize refs with initial positions
   useEffect(() => {
     if (startRef.current) {
@@ -44,12 +41,12 @@ export default function NavgraphRenderer({}: {}) {
 
   useEffect(() => {
     const asyncLoad = async () => {
-      await pathfinder.load(navMap, legacyNavmesh);
+      await pathfinder.load(editor.crdt.state, createMeshes());
       //kickstart the first pathfinding
       setStart({ ...start });
     };
     asyncLoad();
-  }, [navMap, legacyNavmesh]);
+  }, [editor.crdt.state, createMeshes]);
 
   const handlePointClick = useCallback(
     (pointId: string, event: React.MouseEvent) => {
@@ -211,7 +208,7 @@ export default function NavgraphRenderer({}: {}) {
       </group>
       {displayState.showPoints && (
         <group name="points">
-          {Object.entries(navMap.points).map(([pointId, point]) => (
+          {Object.entries(pathfinder.allPoints).map(([pointId, point]) => (
             <mesh
               key={pointId}
               position={[point.x, point.y ?? 0, point.z]}
@@ -245,9 +242,10 @@ export default function NavgraphRenderer({}: {}) {
           <Line
             points={[
               [
-                navMap.points[editor.edgeDrawingState.firstPoint].x,
-                navMap.points[editor.edgeDrawingState.firstPoint].y ?? 0,
-                navMap.points[editor.edgeDrawingState.firstPoint].z,
+                pathfinder.getMapPoint(editor.edgeDrawingState.firstPoint)!.x,
+                pathfinder.getMapPoint(editor.edgeDrawingState.firstPoint)!.y ??
+                  0,
+                pathfinder.getMapPoint(editor.edgeDrawingState.firstPoint)!.z,
               ],
               [
                 editor.mousePosition.x,
@@ -265,19 +263,19 @@ export default function NavgraphRenderer({}: {}) {
         )}
       {displayState.showEdges && (
         <group name="edges">
-          {Object.entries(navMap.edges).map(([edgeId, edge]) => (
+          {Object.entries(pathfinder.allEdges).map(([edgeId, edge]) => (
             <Line
               key={edgeId}
               points={[
                 [
-                  navMap.points[edge.from].x,
-                  navMap.points[edge.from].y ?? 0,
-                  navMap.points[edge.from].z,
+                  pathfinder.getMapPoint(edge.from)!.x,
+                  pathfinder.getMapPoint(edge.from)!.y ?? 0,
+                  pathfinder.getMapPoint(edge.from)!.z,
                 ],
                 [
-                  navMap.points[edge.to].x,
-                  navMap.points[edge.to].y ?? 0,
-                  navMap.points[edge.to].z,
+                  pathfinder.getMapPoint(edge.to)!.x,
+                  pathfinder.getMapPoint(edge.to)!.y ?? 0,
+                  pathfinder.getMapPoint(edge.to)!.z,
                 ],
               ]}
               color="#AA0000"
@@ -297,8 +295,8 @@ export default function NavgraphRenderer({}: {}) {
         <group name="adjacency-list">
           {Array.from(adjacencyList.entries()).map(([fromPointId, neighbors]) =>
             neighbors.map((toPointId: string, i: number) => {
-              const fromPoint = navMap.points[fromPointId];
-              const toPoint = navMap.points[toPointId];
+              const fromPoint = pathfinder.getMapPoint(fromPointId);
+              const toPoint = pathfinder.getMapPoint(toPointId);
 
               if (!fromPoint || !toPoint) return null;
 
@@ -424,7 +422,7 @@ export default function NavgraphRenderer({}: {}) {
       )}
       {displayState.showLegacyNavmesh && (
         <group>
-          {legacyNavmesh?.map(({ name, geometry }) => (
+          {pathfinder.legacyMeshes?.map(({ name, geometry }) => (
             <group key={name}>
               <mesh
                 key={name + "x"}
