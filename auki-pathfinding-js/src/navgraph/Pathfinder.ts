@@ -74,10 +74,10 @@ export class Pathfinder {
     this._legacyMeshes = legacyNavmesh;
     await init();
     this.initializeMapAreas();
+    await this.initializeLegacyAreaNavMeshes();
     this.buildAdjacencyList();
     await this.initializeAreaNavMeshes();
     await this.initializeAreaDistances();
-    await this.initializeLegacyAreaNavMeshes();
     await this.initializeLegacyAreaConnections();
     this.isLoaded = true;
   }
@@ -173,7 +173,11 @@ export class Pathfinder {
 
     // Add area-based exit-to-exit connections
     Object.entries(this._map.areas).forEach(([areaId, area]) => {
-      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+      const exitPoints = mapUtils.findExitPoints(
+        this._map,
+        areaId,
+        this._legacyNavMeshQuery
+      );
 
       // Connect all exit points within the same area
       for (let i = 0; i < exitPoints.length; i++) {
@@ -751,7 +755,11 @@ export class Pathfinder {
       const bothInSameArea = toIsAreaEdge && toEdgeAreas[0] === areaId;
 
       if (!bothInSameArea) {
-        const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+        const exitPoints = mapUtils.findExitPoints(
+          this._map,
+          areaId,
+          this._legacyNavMeshQuery
+        );
         const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
         if (exitPoints.length > 0 && navMeshQuery) {
@@ -960,7 +968,11 @@ export class Pathfinder {
       const bothInSameArea = fromIsAreaEdge && fromEdgeAreas[0] === areaId;
 
       if (!bothInSameArea) {
-        const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+        const exitPoints = mapUtils.findExitPoints(
+          this._map,
+          areaId,
+          this._legacyNavMeshQuery
+        );
         const navMeshQuery = this._areaNavMeshQueries.get(areaId);
 
         if (exitPoints.length > 0 && navMeshQuery) {
@@ -1277,7 +1289,11 @@ export class Pathfinder {
       const navMesh = this._areaNavMeshQueries.get(areaId);
       if (!navMesh) continue;
 
-      const exitPoints = mapUtils.findExitPoints(this._map, areaId);
+      const exitPoints = mapUtils.findExitPoints(
+        this._map,
+        areaId,
+        this._legacyNavMeshQuery
+      );
 
       // Pre-compute distances between all pairs of exit points
       for (let i = 0; i < exitPoints.length; i++) {

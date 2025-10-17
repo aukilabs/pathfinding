@@ -2,6 +2,8 @@ import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
 import { Area, NavMap, Points } from "./NavgraphTypes";
+import { NavMeshQuery } from "recast-navigation";
+import * as recastUtils from "./RecastUtils";
 
 export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
   if (!map) return [];
@@ -17,7 +19,11 @@ export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
     .map(([areaId, _]) => areaId);
 }
 
-export function findExitPoints(map: NavMap, areaId: string): string[] {
+export function findExitPoints(
+  map: NavMap,
+  areaId: string,
+  legacyNavMeshQuery?: NavMeshQuery | null
+): string[] {
   if (!map) return [];
 
   const area = map.areas[areaId];
@@ -35,7 +41,19 @@ export function findExitPoints(map: NavMap, areaId: string): string[] {
       return !edgeAreas.includes(areaId);
     });
 
-    if (hasExternalConnections) {
+    // Also check if point is on legacy NavMesh using the query
+    let isOnLegacyNavMesh = false;
+    if (legacyNavMeshQuery) {
+      const point = map.points[pointId];
+      if (point) {
+        isOnLegacyNavMesh = recastUtils.isPointOnLegacyNavMesh(
+          point,
+          legacyNavMeshQuery
+        );
+      }
+    }
+
+    if (hasExternalConnections || isOnLegacyNavMesh) {
       exitPoints.push(pointId);
     }
   });
