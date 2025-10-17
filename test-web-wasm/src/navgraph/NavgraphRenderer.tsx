@@ -302,14 +302,17 @@ export default function NavgraphRenderer({}: {}) {
 
               if (!fromPoint || !toPoint) return null;
 
-              if (
-                pathfinder.preComputedAreaPaths.has(
-                  constants.createEdgeWeightKey(fromPointId, toPointId)
-                )
-              ) {
-                const path = pathfinder.preComputedAreaPaths.get(
-                  constants.createEdgeWeightKey(fromPointId, toPointId)
+              const edgeKey = constants.createEdgeWeightKey(
+                fromPointId,
+                toPointId
+              );
+              const connections = pathfinder.edgeWeights.get(edgeKey);
+              if (connections && connections.length > 0) {
+                // Find the connection with minimum weight (what Dijkstra would choose)
+                const chosenConnection = connections.reduce((min, conn) =>
+                  conn.weight < min.weight ? conn : min
                 );
+                const path = chosenConnection.path;
                 return (
                   <Line
                     key={`adj-${fromPointId}-${toPointId}-${i}`}

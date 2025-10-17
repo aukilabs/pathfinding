@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
-import { Area, NavMap, Points } from "./NavgraphTypes";
+import { Area, NavMap, Points, EdgeWeightInfo } from "./NavgraphTypes";
 import { NavMeshQuery } from "recast-navigation";
 import * as recastUtils from "./RecastUtils";
 
@@ -136,14 +136,18 @@ export function findAreaContainingPoint(
 }
 
 export function getEdgeWeight(
-  edgeWeights: Map<string, number>,
+  edgeWeights: Map<string, EdgeWeightInfo[]>,
   from: string,
   to: string
 ): number {
-  // First check if we have a stored weight for this edge
-  const weight = edgeWeights.get(constants.createEdgeWeightKey(from, to));
-  if (weight !== undefined) {
-    return weight;
+  // First check if we have stored weights for this edge
+  const connections = edgeWeights.get(constants.createEdgeWeightKey(from, to));
+  if (connections && connections.length > 0) {
+    // Find the minimum weight among all connection types
+    return connections.reduce(
+      (min, conn) => (conn.weight < min ? conn.weight : min),
+      Infinity
+    );
   }
 
   // Handle intermediate points - calculate actual distance to their edge endpoints
