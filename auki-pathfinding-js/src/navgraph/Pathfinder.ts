@@ -374,7 +374,7 @@ export class Pathfinder {
         ) {
           // Get all connections between these nodes
           const connections = this._edgeWeights.get(
-            `${currentNode}-${nextNode}`
+            createEdgeWeightKey(currentNode, nextNode)
           );
 
           if (connections && connections.length > 0) {
