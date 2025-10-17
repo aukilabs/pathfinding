@@ -224,88 +224,7 @@ export class Pathfinder {
       to
     );
 
-    // Special case: if both points are on the same legacy NavMesh,
-    // check if direct NavMesh path is shorter than the full graph-optimized path
-    if (fromLegacyResult && toLegacyResult) {
-      // First, compute the full graph-optimized path
-      const fromResult = pathfinding.chooseClosestResult(
-        fromEdgeResult,
-        fromLegacyResult,
-        from
-      );
-      const toResult = pathfinding.chooseClosestResult(
-        toEdgeResult,
-        toLegacyResult,
-        to
-      );
-
-      if (fromResult && toResult) {
-        // Create temporary graph and find the graph-optimized path
-        const { tempAdjacencyList, tempPaths } = this.createTemporaryGraph(
-          fromResult,
-          toResult
-        );
-
-        const graphPath = this.dijkstraWithTempGraph(
-          tempAdjacencyList,
-          constants.FROM_INTERMEDIATE,
-          constants.TO_INTERMEDIATE
-        );
-
-        if (graphPath) {
-          console.log(
-            "Graph path found:",
-            graphPath,
-            fromResult,
-            toResult,
-            from,
-            to
-          );
-          // Convert to world coordinates to get actual path length
-          const fullGraphPath = this.convertGraphPathToWorldPath(
-            graphPath,
-            fromResult,
-            toResult,
-            from,
-            to,
-            tempPaths
-          );
-          const graphPathLength = geometry.calculatePathLength(fullGraphPath);
-
-          // Now compare with direct NavMesh path
-          const directNavMeshPath = pathfinding.tryDirectLegacyNavMeshPath(
-            this._legacyNavMeshQuery,
-            from,
-            to
-          );
-
-          if (directNavMeshPath) {
-            const directPathLength =
-              geometry.calculatePathLength(directNavMeshPath);
-
-            // Use direct path only if it's significantly shorter
-            if (directPathLength < graphPathLength * 0.9) {
-              // 10% shorter threshold
-              console.log(
-                `Using direct legacy NavMesh path (${directPathLength.toFixed(
-                  2
-                )} vs ${graphPathLength.toFixed(2)})`
-              );
-              return directNavMeshPath;
-            } else {
-              console.log(
-                `Using graph-optimized path (${graphPathLength.toFixed(
-                  2
-                )} vs ${directPathLength.toFixed(2)})`
-              );
-              return fullGraphPath;
-            }
-          }
-        }
-      }
-    }
-
-    // If we get here, use the normal pathfinding logic
+    // Use unified pathfinding logic for all cases
     const fromResult = pathfinding.chooseClosestResult(
       fromEdgeResult,
       fromLegacyResult,
@@ -494,6 +413,55 @@ export class Pathfinder {
       fromResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
     const toIsLegacyEdge =
       toResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
+
+    // Special case: if both points are on legacy NavMesh, add direct connection
+    if (fromIsLegacyEdge && toIsLegacyEdge) {
+      // Compute direct NavMesh path between start and end
+      const directPath = pathfinding.tryDirectLegacyNavMeshPath(
+        this._legacyNavMeshQuery,
+        fromResult.position,
+        toResult.position
+      );
+
+      if (directPath) {
+        const directDistance = geometry.calculatePathLength(directPath);
+
+        // Add direct bidirectional connection
+        const fromNeighbors =
+          tempAdjacencyList.get(constants.FROM_INTERMEDIATE) || [];
+        tempAdjacencyList.set(constants.FROM_INTERMEDIATE, [
+          ...fromNeighbors,
+          constants.TO_INTERMEDIATE,
+        ]);
+
+        const toNeighbors =
+          tempAdjacencyList.get(constants.TO_INTERMEDIATE) || [];
+        tempAdjacencyList.set(constants.TO_INTERMEDIATE, [
+          ...toNeighbors,
+          constants.FROM_INTERMEDIATE,
+        ]);
+
+        // Set edge weight
+        this._edgeWeights.set(
+          constants.createEdgeWeightKey(
+            constants.FROM_INTERMEDIATE,
+            constants.TO_INTERMEDIATE
+          ),
+          directDistance
+        );
+
+        // Store the path for reconstruction
+        tempPaths.set(constants.createDirectPathKey(), directPath);
+
+        console.log(
+          `Added direct legacy NavMesh connection: ${
+            constants.FROM_INTERMEDIATE
+          } ↔ ${constants.TO_INTERMEDIATE} (distance: ${directDistance.toFixed(
+            2
+          )})`
+        );
+      }
+    }
 
     // Add connections from existing nodes to intermediate points
     const fromIsAreaEdge = fromIsLegacyEdge
