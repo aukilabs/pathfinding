@@ -1,27 +1,10 @@
 import ThreeCanvas from "./threed/ThreeCanvas";
 import NavgraphToolbar from "./navgraph/NavgraphToolbar";
-
-import { testCRDT } from "./editing/CRDTTest";
 import { Grid } from "@react-three/drei";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import NavgraphRenderer from "./navgraph/NavgraphRenderer";
-import { createNavMapCRDT } from "./editing/CRDT";
-import { TestNavData } from "./navgraph/TestNavGraph";
-
-console.log("Starting CRDT test...");
-testCRDT();
-console.log("CRDT test completed.");
 
 function App() {
-  const [crdt, setCRDT] = useState(() =>
-    createNavMapCRDT(TestNavData, "main-client")
-  );
-
-  // In NavgraphRenderer.tsx
-  const [currentTool, setCurrentTool] = useState<
-    "select" | "addPoint" | "drawEdge"
-  >("select");
-
   return (
     <div className="w-full h-full">
       <ThreeCanvas>
@@ -43,19 +26,10 @@ function App() {
 
         {/* Add NavgraphRenderer back */}
         <Suspense fallback={null}>
-          <NavgraphRenderer
-            navMapCrdt={crdt}
-            currentTool={currentTool}
-            onCRDTChange={setCRDT}
-          />
+          <NavgraphRenderer />
         </Suspense>
       </ThreeCanvas>
-      <NavgraphToolbar
-        crdt={crdt}
-        onCRDTChange={setCRDT}
-        currentTool={currentTool}
-        onToolChange={setCurrentTool}
-      />
+      <NavgraphToolbar />
     </div>
   );
 }

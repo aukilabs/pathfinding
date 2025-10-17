@@ -7,8 +7,8 @@ import { useNavgraphDisplayState } from "./NavgraphDisplayState";
 import * as constants from "auki-pathfinding";
 import { createMeshes } from "./TestLegacyNavmesh";
 import { initialize, add } from "auki-pathfinding/wasm";
-import { applyOperation, NavMapCRDT } from "../editing/CRDT";
 import { useThree } from "@react-three/fiber";
+import { useNavgraphEditingState } from "../editing/NavgraphEditingState";
 
 initialize().then(() => {
   console.log("WASM initialized");
@@ -16,16 +16,9 @@ initialize().then(() => {
   console.log("WSM add Result: ", result);
 });
 
-export default function NavgraphRenderer({
-  navMapCrdt,
-  currentTool,
-  onCRDTChange,
-}: {
-  navMapCrdt: NavMapCRDT;
-  currentTool: "select" | "addPoint" | "drawEdge";
-  onCRDTChange: (crdt: NavMapCRDT) => void;
-}) {
+export default function NavgraphRenderer({}: {}) {
   const displayState = useNavgraphDisplayState();
+  const editor = useNavgraphEditingState();
   const [path, setPath] = useState<THREE.Vector3Like[] | null>(null);
   const [start, setStart] = useState<THREE.Vector3Like>({ x: 4, y: 0, z: 0 });
   const [end, setEnd] = useState<THREE.Vector3Like>({ x: -5, y: 0, z: -4.5 });
@@ -33,18 +26,7 @@ export default function NavgraphRenderer({
   const endRef = useRef<THREE.Object3D>(null);
 
   const legacyNavmesh = useMemo(createMeshes, []);
-  const navMap = navMapCrdt.state;
-
-  const [selectedPoints, setSelectedPoints] = useState<Set<string>>(new Set());
-
-  const [mousePosition, setMousePosition] = useState<THREE.Vector3>(
-    new THREE.Vector3(0, 0, 0)
-  );
-
-  const [edgeDrawingState, setEdgeDrawingState] = useState<{
-    isDrawing: boolean;
-    firstPoint: string | null;
-  }>({ isDrawing: false, firstPoint: null });
+  const navMap = editor.crdt.state;
 
   // Initialize refs with initial positions
   useEffect(() => {
@@ -67,47 +49,40 @@ export default function NavgraphRenderer({
       setStart({ ...start });
     };
     asyncLoad();
-  }, []);
-
-  useEffect(() => {
-    if (currentTool !== "drawEdge") {
-      setEdgeDrawingState({ isDrawing: false, firstPoint: null });
-    }
-  }, [currentTool]);
+  }, [navMap, legacyNavmesh]);
 
   const handlePointClick = useCallback(
     (pointId: string, event: React.MouseEvent) => {
       event.stopPropagation();
 
-      if (currentTool === "drawEdge") {
-        if (!edgeDrawingState.isDrawing) {
+      if (editor.currentTool === "select") {
+        editor.togglePointSelection(pointId);
+      } else if (editor.currentTool === "drawEdge") {
+        if (!editor.edgeDrawingState.isDrawing) {
           // Start edge drawing - select first point
-          setEdgeDrawingState({ isDrawing: true, firstPoint: pointId });
+          editor.setEdgeDrawingState({ isDrawing: true, firstPoint: pointId });
         } else {
           // Complete edge drawing - create edge
           if (
-            edgeDrawingState.firstPoint &&
-            edgeDrawingState.firstPoint !== pointId
+            editor.edgeDrawingState.firstPoint &&
+            editor.edgeDrawingState.firstPoint !== pointId
           ) {
-            const edgeId = `e${Date.now()}`;
-            const operation = {
-              type: "setEdge" as const,
-              data: {
-                id: edgeId,
-                edge: { from: edgeDrawingState.firstPoint, to: pointId },
-              },
-            };
-
-            const newCRDT = applyOperation(navMapCrdt, operation);
-            onCRDTChange(newCRDT);
+            editor.addEdge(editor.edgeDrawingState.firstPoint, pointId);
           }
 
           // Reset edge drawing state
-          setEdgeDrawingState({ isDrawing: false, firstPoint: null });
+          editor.setEdgeDrawingState({ isDrawing: false, firstPoint: null });
         }
       }
     },
-    [currentTool, edgeDrawingState, navMapCrdt, onCRDTChange]
+    [
+      editor.currentTool,
+      editor.edgeDrawingState,
+      editor.selectedPoints,
+      editor.addEdge,
+      editor.crdt,
+      editor.setCRDT,
+    ]
   );
 
   const camera = useThree((state) => state.camera);
@@ -138,25 +113,15 @@ export default function NavgraphRenderer({
 
   const handleEmptySpaceClick = useCallback(
     (event: React.MouseEvent) => {
-      if (currentTool !== "addPoint") return;
+      if (editor.currentTool !== "addPoint") return;
 
       // Get 3D coordinates from the click
       const intersection = getIntersectionFromClick(event);
       if (intersection) {
-        const pointId = `p${Date.now()}`;
-        const operation = {
-          type: "setPoint" as const,
-          data: {
-            id: pointId,
-            point: { x: intersection.x, y: 0, z: intersection.z },
-          },
-        };
-
-        const newCRDT = applyOperation(navMapCrdt, operation);
-        onCRDTChange(newCRDT);
+        editor.addPoint(intersection);
       }
     },
-    [currentTool, navMapCrdt, onCRDTChange]
+    [editor.currentTool, editor.addPoint]
   );
 
   useEffect(() => {
@@ -180,19 +145,18 @@ export default function NavgraphRenderer({
 
   const handleMouseMove = useCallback(
     (event: React.MouseEvent) => {
-      if (edgeDrawingState.isDrawing) {
+      if (editor.edgeDrawingState.isDrawing) {
         const intersection = getIntersectionFromClick(event);
         if (intersection) {
-          setMousePosition(intersection);
+          editor.setMousePosition(intersection);
         }
       }
     },
-    [edgeDrawingState.isDrawing, getIntersectionFromClick]
+    [editor.edgeDrawingState.isDrawing, getIntersectionFromClick]
   );
 
   return (
     <group>
-      // Add this to your JSX in NavgraphRenderer
       <mesh
         position={[0, -0.1, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
@@ -256,11 +220,16 @@ export default function NavgraphRenderer({
                 handlePointClick(pointId, event)
               }
             >
-              <sphereGeometry args={[0.05, 32, 32]} />
-              <meshStandardMaterial color="#FF0000" depthTest={false} />
+              <sphereGeometry args={[0.1, 32, 32]} />
+              <meshStandardMaterial
+                color={
+                  editor.selectedPoints.has(pointId) ? "#00FF00" : "#FF0000"
+                }
+                depthTest={false}
+              />
               <Text
                 rotation={[-Math.PI / 2, 0, 0]}
-                position={[0, 0.5, 0]}
+                position={[0, 0.1, -0.25]}
                 fontSize={0.25}
                 color="#000000"
               >
@@ -270,24 +239,30 @@ export default function NavgraphRenderer({
           ))}
         </group>
       )}
-      {edgeDrawingState.isDrawing && edgeDrawingState.firstPoint && (
-        <Line
-          points={[
-            [
-              navMap.points[edgeDrawingState.firstPoint].x,
-              navMap.points[edgeDrawingState.firstPoint].y ?? 0,
-              navMap.points[edgeDrawingState.firstPoint].z,
-            ],
-            [mousePosition.x, mousePosition.y, mousePosition.z],
-          ]}
-          color="#FFFF00"
-          linewidth={2}
-          dashed={true}
-          depthTest={false}
-          transparent={true}
-          renderOrder={20}
-        />
-      )}
+      {editor.edgeDrawingState.isDrawing &&
+        editor.edgeDrawingState.firstPoint &&
+        editor.mousePosition && (
+          <Line
+            points={[
+              [
+                navMap.points[editor.edgeDrawingState.firstPoint].x,
+                navMap.points[editor.edgeDrawingState.firstPoint].y ?? 0,
+                navMap.points[editor.edgeDrawingState.firstPoint].z,
+              ],
+              [
+                editor.mousePosition.x,
+                editor.mousePosition.y,
+                editor.mousePosition.z,
+              ],
+            ]}
+            color="#ffbb00"
+            linewidth={2}
+            dashed={true}
+            depthTest={false}
+            transparent={true}
+            renderOrder={20}
+          />
+        )}
       {displayState.showEdges && (
         <group name="edges">
           {Object.entries(navMap.edges).map(([edgeId, edge]) => (
