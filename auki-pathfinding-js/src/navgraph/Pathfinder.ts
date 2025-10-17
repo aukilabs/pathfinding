@@ -335,14 +335,50 @@ export class Pathfinder {
           nextNode !== constants.FROM_INTERMEDIATE &&
           nextNode !== constants.TO_INTERMEDIATE
         ) {
-          const precomputedPath = this._precomputedAreaPaths.get(
+          // Check for precomputed legacy NavMesh path
+          const legacyPath = this._precomputedAreaPaths.get(
             `${currentNode}-${nextNode}`
-          ); // Use tempPaths
+          );
 
-          if (precomputedPath) {
-            fullPath.push(...precomputedPath); // Skip first point to avoid duplication
+          // Check for direct edge path
+          const edgePath = this.getDirectEdgePath(currentNode, nextNode);
+
+          if (legacyPath && edgePath) {
+            // Compare distances and choose shorter path
+            const legacyDistance = geometry.calculatePathLength(legacyPath);
+            const edgeDistance = geometry.calculatePathLength(edgePath);
+
+            if (edgeDistance < legacyDistance) {
+              console.log(
+                `Using shorter edge path: ${currentNode} → ${nextNode} (${edgeDistance.toFixed(
+                  2
+                )} vs ${legacyDistance.toFixed(2)})`
+              );
+              fullPath.push(...edgePath);
+            } else {
+              console.log(
+                `Using legacy NavMesh path: ${currentNode} → ${nextNode} (${legacyDistance.toFixed(
+                  2
+                )} vs ${edgeDistance.toFixed(2)})`
+              );
+              fullPath.push(...legacyPath);
+            }
             i++; // Skip next node since we've already processed it
             continue;
+          } else if (legacyPath) {
+            console.log(`Using precomputed path: ${currentNode} → ${nextNode}`);
+            fullPath.push(...legacyPath);
+            i++; // Skip next node since we've already processed it
+            continue;
+          } else if (edgePath) {
+            console.log(`Using direct edge path: ${currentNode} → ${nextNode}`);
+            fullPath.push(...edgePath);
+            i++; // Skip next node since we've already processed it
+            continue;
+          } else {
+            console.log(
+              `No precomputed path found for: ${currentNode} → ${nextNode}`
+            );
           }
         }
 
@@ -353,6 +389,35 @@ export class Pathfinder {
 
     fullPath.push(to);
     return fullPath;
+  }
+
+  /**
+   * Helper function to get direct edge path between two points
+   */
+  private getDirectEdgePath(
+    fromId: string,
+    toId: string
+  ): THREE.Vector3Like[] | null {
+    // Look for an edge between these two points
+    const edge = Object.values(this._map.edges).find(
+      (e) =>
+        (e.from === fromId && e.to === toId) ||
+        (e.from === toId && e.to === fromId)
+    );
+
+    if (!edge) return null;
+
+    // Check if it's a one-way edge going in the wrong direction
+    if (edge.dir === 1 && edge.from !== fromId) return null;
+    if (edge.dir === -1 && edge.to !== fromId) return null;
+
+    // Return the direct path between the two points
+    const fromPoint = this.getMapPoint(fromId);
+    const toPoint = this.getMapPoint(toId);
+
+    if (!fromPoint || !toPoint) return null;
+
+    return [fromPoint, toPoint];
   }
 
   /**
@@ -1246,6 +1311,19 @@ export class Pathfinder {
       `Found ${intersectingPoints.length} graph points intersecting with legacy NavMesh:`,
       intersectingPoints
     );
+
+    // Debug: Check if p22 and p21 are both detected
+    if (
+      intersectingPoints.includes("p22") &&
+      intersectingPoints.includes("p21")
+    ) {
+      console.log("✅ Both p22 and p21 are detected as on legacy NavMesh");
+    } else {
+      console.log("❌ Missing legacy NavMesh detection:", {
+        p22: intersectingPoints.includes("p22"),
+        p21: intersectingPoints.includes("p21"),
+      });
+    }
 
     // Add direct NavMesh connections between all pairs of intersecting points
     // This treats the legacy NavMesh like an area with precomputed internal connections
