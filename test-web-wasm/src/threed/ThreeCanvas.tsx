@@ -1,17 +1,14 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Suspense, useRef } from "react";
-import Scene from "./Scene";
+import { useRef } from "react";
 
-const ThreeCanvas = () => {
+const ThreeCanvas = ({ children }: { children: React.ReactNode }) => {
   const controlsRef = useRef<any>(null);
 
   return (
     <div className="w-full h-full ">
       <Canvas id="three-canvas" camera={{ position: [0, 5, 10], fov: 50 }}>
-        <Suspense fallback={null}>
-          <Scene />
-        </Suspense>
+        {children}
         <OrbitControls ref={controlsRef} makeDefault enabled={true} />
       </Canvas>
     </div>

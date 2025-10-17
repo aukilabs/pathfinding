@@ -1,7 +1,7 @@
 import { Area, Edge, NavMap, Point } from "auki-pathfinding";
 import { v4 as uuidv4 } from "uuid";
 
-type NavMapCRDT = {
+export type NavMapCRDT = {
   readonly state: NavMap;
   readonly operations: readonly Operation[];
   readonly redoStack: readonly Operation[];

@@ -8,8 +8,19 @@ import {
 import EyeIcon from "../assets/eye.svg?react";
 import GotuSwitch from "../ui/GotuSwitch";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
+import { NavMapCRDT } from "../editing/CRDT";
 
-export default function NavgraphToolbar({}: {}) {
+export default function NavgraphToolbar({
+  crdt,
+  onCRDTChange,
+  currentTool,
+  onToolChange,
+}: {
+  crdt: NavMapCRDT;
+  onCRDTChange: (crdt: NavMapCRDT) => void;
+  currentTool: "select" | "addPoint" | "drawEdge";
+  onToolChange: (tool: "select" | "addPoint" | "drawEdge") => void;
+}) {
   const state = useNavgraphDisplayState();
 
   return (
@@ -108,6 +119,38 @@ export default function NavgraphToolbar({}: {}) {
               </ListBox>
             </Popover>
           </MenuTrigger>
+          <div className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
+            <Button
+              className={`px-3 py-1 rounded ${
+                currentTool === "select"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200"
+              }`}
+              onPress={() => onToolChange("select")}
+            >
+              Select
+            </Button>
+            <Button
+              className={`px-3 py-1 rounded ${
+                currentTool === "addPoint"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200"
+              }`}
+              onPress={() => onToolChange("addPoint")}
+            >
+              Add Point
+            </Button>
+            <Button
+              className={`px-3 py-1 rounded ${
+                currentTool === "drawEdge"
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200"
+              }`}
+              onPress={() => onToolChange("drawEdge")}
+            >
+              Draw Edge
+            </Button>
+          </div>
         </div>
       </div>
     </>
