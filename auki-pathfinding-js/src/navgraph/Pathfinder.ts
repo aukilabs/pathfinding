@@ -729,31 +729,55 @@ export class Pathfinder {
       tempAdjacencyList.set(nodeId, [...neighbors]);
     });
 
-    // Add intermediate points as temporary nodes
-    // For legacy NavMesh, we'll handle connections differently
-    if (fromResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID) {
-      tempAdjacencyList.set(constants.FROM_INTERMEDIATE, []);
-    } else {
-      tempAdjacencyList.set(constants.FROM_INTERMEDIATE, [
-        fromResult.fromPointId,
-        fromResult.toPointId,
-      ]);
-    }
-
-    if (toResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID) {
-      tempAdjacencyList.set(constants.TO_INTERMEDIATE, []);
-    } else {
-      tempAdjacencyList.set(constants.TO_INTERMEDIATE, [
-        toResult.fromPointId,
-        toResult.toPointId,
-      ]);
-    }
-
     // Determine edge types
     const fromIsLegacyEdge =
       fromResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
     const toIsLegacyEdge =
       toResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
+
+    // Add intermediate points as temporary nodes
+    // For legacy NavMesh, we'll handle connections differently
+    if (fromIsLegacyEdge) {
+      tempAdjacencyList.set(constants.FROM_INTERMEDIATE, []);
+    } else {
+      // Respect edge direction for FROM_INTERMEDIATE connections
+      const fromEdge = this.getMapEdge(fromResult.edgeId);
+      const fromConnections = [];
+
+      if (fromEdge?.dir === undefined || fromEdge?.dir === 0) {
+        // Bidirectional or undefined - add both directions
+        fromConnections.push(fromResult.toPointId);
+      } else if (fromEdge?.dir === 1) {
+        // Forward only - only add toPointId
+        fromConnections.push(fromResult.toPointId);
+      } else if (fromEdge?.dir === -1) {
+        // Backward only - only add fromPointId
+        fromConnections.push(fromResult.fromPointId);
+      }
+
+      tempAdjacencyList.set(constants.FROM_INTERMEDIATE, fromConnections);
+    }
+
+    if (toIsLegacyEdge) {
+      tempAdjacencyList.set(constants.TO_INTERMEDIATE, []);
+    } else {
+      // Respect edge direction for TO_INTERMEDIATE connections
+      const toEdge = this.getMapEdge(toResult.edgeId);
+      const toConnections = [];
+
+      if (toEdge?.dir === undefined || toEdge?.dir === 0) {
+        // Bidirectional or undefined - add both directions
+        toConnections.push(toResult.fromPointId);
+      } else if (toEdge?.dir === -1) {
+        // Backward only - only add fromPointId
+        toConnections.push(toResult.fromPointId);
+      } else if (toEdge?.dir === 1) {
+        // Forward only - only add toPointId
+        toConnections.push(toResult.toPointId);
+      }
+
+      tempAdjacencyList.set(constants.TO_INTERMEDIATE, toConnections);
+    }
 
     // Special case: if both points are on legacy NavMesh, add direct connection
     if (fromIsLegacyEdge && toIsLegacyEdge) {
