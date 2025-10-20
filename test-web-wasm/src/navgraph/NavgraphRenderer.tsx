@@ -329,31 +329,54 @@ export default function NavgraphRenderer({}: {}) {
         )}
       {displayState.showEdges && (
         <group name="edges">
-          {Object.entries(pathfinder.allEdges).map(([edgeId, edge]) => (
-            <Line
-              key={edgeId}
-              points={[
-                [
-                  pathfinder.getMapPoint(edge.from)!.x,
-                  pathfinder.getMapPoint(edge.from)!.y ?? 0,
-                  pathfinder.getMapPoint(edge.from)!.z,
-                ],
-                [
-                  pathfinder.getMapPoint(edge.to)!.x,
-                  pathfinder.getMapPoint(edge.to)!.y ?? 0,
-                  pathfinder.getMapPoint(edge.to)!.z,
-                ],
-              ]}
-              color="#AA0000"
-              linewidth={0.75}
-              dashed={!!edge.dir}
-              dashSize={0.1}
-              gapSize={0.1}
-              depthTest={false}
-              transparent={true}
-              renderOrder={10}
-            />
-          ))}
+          {Object.entries(pathfinder.allEdges).map(([edgeId, edge]) => {
+            const midpoint = new THREE.Vector3(
+              (pathfinder.getMapPoint(edge.from)!.x +
+                pathfinder.getMapPoint(edge.to)!.x) /
+                2,
+              ((pathfinder.getMapPoint(edge.from)!.y ?? 0) +
+                (pathfinder.getMapPoint(edge.to)!.y ?? 0)) /
+                2,
+              (pathfinder.getMapPoint(edge.from)!.z +
+                pathfinder.getMapPoint(edge.to)!.z) /
+                2
+            );
+            return (
+              <group key={edgeId}>
+                <Line
+                  key={edgeId}
+                  points={[
+                    [
+                      pathfinder.getMapPoint(edge.from)!.x,
+                      pathfinder.getMapPoint(edge.from)!.y ?? 0,
+                      pathfinder.getMapPoint(edge.from)!.z,
+                    ],
+                    [
+                      pathfinder.getMapPoint(edge.to)!.x,
+                      pathfinder.getMapPoint(edge.to)!.y ?? 0,
+                      pathfinder.getMapPoint(edge.to)!.z,
+                    ],
+                  ]}
+                  color="#AA0000"
+                  linewidth={0.75}
+                  dashed={!!edge.dir}
+                  dashSize={0.1}
+                  gapSize={0.1}
+                  depthTest={false}
+                  transparent={true}
+                  renderOrder={10}
+                />
+                <Text
+                  rotation={[-Math.PI / 2, 0, 0]}
+                  position={midpoint}
+                  fontSize={0.25}
+                  color="#000000"
+                >
+                  {edgeId}
+                </Text>
+              </group>
+            );
+          })}
         </group>
       )}
       {/* Visualize adjacency list connections */}

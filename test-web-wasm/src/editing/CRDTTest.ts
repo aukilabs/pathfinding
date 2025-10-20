@@ -23,6 +23,9 @@ export const testCRDT = () => {
     { id: "e99", edge: { from: "p99", to: "p100" } },
     { id: "e100", edge: { from: "p100", to: "p101" } },
     { id: "e101", edge: { from: "p101", to: "p99" } },
+    { id: "e102", edge: { from: "p22", to: "p99" } },
+    { id: "e103", edge: { from: "p99", to: "p20" } },
+    { id: "e104", edge: { from: "p20", to: "p21" } },
   ];
 
   for (const { id, edge } of edges) {
@@ -31,8 +34,8 @@ export const testCRDT = () => {
 
   // Test adding areas
   const areas = [
-    { id: "a99", area: { points: ["p99", "p100", "p101"] } },
-    { id: "a100", area: { points: ["p20", "p21", "p22", "p99"] } },
+    { id: "a99", area: { edges: ["e99", "e100", "e101"] } },
+    { id: "a100", area: { edges: ["e29", "e102", "e103", "e104"] } },
   ];
 
   for (const { id, area } of areas) {

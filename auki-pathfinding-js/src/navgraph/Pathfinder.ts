@@ -116,7 +116,7 @@ export class Pathfinder {
 
   private initializeMapAreas() {
     for (const [areaId, area] of Object.entries(this._map.areas)) {
-      const polygon = mapUtils.buildPolygonFromArea(area, this._map.points);
+      const polygon = mapUtils.buildPolygonFromArea(areaId, this._map);
       if (!polygon) {
         console.error("failed to build polygon for area");
         continue;

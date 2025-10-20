@@ -120,29 +120,37 @@ export const useNavgraphEditingState = create<{
     set({ crdt: newCRDT });
   },
   detectClosedArea: (pointIds: string[]) => {
-    // Simple algorithm: if we can traverse from any point back to itself
-    // through the selected points, it's a closed area
+    // Find a closed loop through the selected points and return the edge IDs
     const navMap = get().crdt.state;
     const visited = new Set<string>();
 
     const dfs = (
       current: string,
       start: string,
-      path: string[]
+      path: string[],
+      edgePath: string[]
     ): string[] | null => {
       if (visited.has(current)) return null;
       visited.add(current);
 
-      const neighbors = Object.entries(navMap.edges)
+      const connectedEdges = Object.entries(navMap.edges)
         .filter(([_, edge]) => edge.from === current || edge.to === current)
-        .map(([_, edge]) => (edge.from === current ? edge.to : edge.from))
-        .filter((neighbor) => pointIds.includes(neighbor));
+        .filter(([edgeId, edge]) => {
+          const neighbor = edge.from === current ? edge.to : edge.from;
+          return pointIds.includes(neighbor);
+        });
 
-      for (const neighbor of neighbors) {
+      for (const [edgeId, edge] of connectedEdges) {
+        const neighbor = edge.from === current ? edge.to : edge.from;
         if (neighbor === start && path.length > 2) {
-          return [...path, neighbor];
+          return [...edgePath, edgeId];
         }
-        const result = dfs(neighbor, start, [...path, neighbor]);
+        const result = dfs(
+          neighbor,
+          start,
+          [...path, neighbor],
+          [...edgePath, edgeId]
+        );
         if (result) return result;
       }
 
@@ -150,8 +158,8 @@ export const useNavgraphEditingState = create<{
     };
 
     for (const pointId of pointIds) {
-      visited.clear(); // Add this line
-      const result = dfs(pointId, pointId, [pointId]);
+      visited.clear();
+      const result = dfs(pointId, pointId, [pointId], []);
       if (result) return result;
     }
 
@@ -160,17 +168,17 @@ export const useNavgraphEditingState = create<{
 
   fillArea: (pointIds: string[]) => {
     if (pointIds.length < 3) return; // Minimum 3 points for area
-    const closedPath = get().detectClosedArea(pointIds);
-    console.log("Closed path:", closedPath);
-    if (closedPath) {
+    const closedEdgePath = get().detectClosedArea(pointIds);
+    console.log("Closed edge path:", closedEdgePath);
+    if (closedEdgePath) {
       const areaId = `a${Date.now()}`;
       const operation = {
         type: "setArea" as const,
-        data: { id: areaId, area: { points: closedPath.slice(0, -1) } },
+        data: { id: areaId, area: { edges: closedEdgePath } },
       };
       const newCRDT = applyOperation(get().crdt, operation);
       set({ crdt: newCRDT, selectedPoints: new Set() });
-      console.log("Area filled:", closedPath);
+      console.log("Area filled with edges:", closedEdgePath);
     }
   },
   performAction: (action: EditingAction | null) => {
