@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 
 export type NavMapCRDT = {
   readonly state: NavMap;
+  readonly initialState: NavMap;
   readonly operations: readonly Operation[];
   readonly redoStack: readonly Operation[];
   lastSequence: number;
@@ -25,6 +26,7 @@ export const createNavMapCRDT = (
   clientId: string
 ): NavMapCRDT => ({
   state: initialState,
+  initialState: initialState,
   operations: [],
   redoStack: [],
   lastSequence: 0,
@@ -91,7 +93,12 @@ export const undo = (crdt: NavMapCRDT): NavMapCRDT => {
   const lastOp = crdt.operations[crdt.operations.length - 1];
   const newOperations = crdt.operations.slice(0, -1);
   const newRedoStack = [...crdt.redoStack, lastOp];
-  const newState = reconstructStateFromOperations(newOperations);
+
+  // If no operations left, return to initial state
+  const newState =
+    newOperations.length === 0
+      ? crdt.initialState // Return to initial state
+      : reconstructStateFromOperations(crdt.initialState, newOperations);
 
   return {
     ...crdt,
@@ -108,7 +115,10 @@ export const redo = (crdt: NavMapCRDT): NavMapCRDT => {
   const nextOp = crdt.redoStack[crdt.redoStack.length - 1];
   const newOperations = [...crdt.operations, nextOp];
   const newRedoStack = crdt.redoStack.slice(0, -1);
-  const newState = reconstructStateFromOperations(newOperations);
+  const newState = reconstructStateFromOperations(
+    crdt.initialState,
+    newOperations
+  );
 
   return {
     ...crdt,
@@ -120,14 +130,13 @@ export const redo = (crdt: NavMapCRDT): NavMapCRDT => {
 };
 
 const reconstructStateFromOperations = (
+  initialState: NavMap,
   operations: readonly Operation[]
 ): NavMap => {
-  let state: NavMap = {
-    points: {},
-    edges: {},
-    areas: {},
-  };
+  // Start with empty state
+  let state = initialState;
 
+  // Apply each operation in sequence
   for (const operation of operations) {
     state = applyOperationToState(state, operation);
   }

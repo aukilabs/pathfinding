@@ -10,6 +10,11 @@ import { TestNavData } from "../navgraph/TestNavGraph";
 import * as THREE from "three";
 
 type EdgeDrawingState = { isDrawing: boolean; firstPoint: string | null };
+type DragState = {
+  isDragging: boolean;
+  draggedPoint: string | null;
+  startPosition: THREE.Vector3 | null;
+};
 type EditingTool = "select" | "addPoint" | "drawEdge";
 type EditingAction = "fillArea" | null;
 
@@ -25,7 +30,10 @@ export const useNavgraphEditingState = create<{
   setEdgeDrawingState: (state: EdgeDrawingState) => void;
   mousePosition: THREE.Vector3 | null;
   setMousePosition: (position: THREE.Vector3 | null) => void;
+  dragState: DragState;
+  setDragState: (state: DragState) => void;
   addPoint: (position: THREE.Vector3) => void;
+  updatePoint: (pointId: string, position: THREE.Vector3) => void;
   addEdge: (from: string, to: string) => void;
   selectPoint: (pointId: string) => void;
   togglePointSelection: (pointId: string) => void;
@@ -52,8 +60,19 @@ export const useNavgraphEditingState = create<{
   mousePosition: null,
   setMousePosition: (position: THREE.Vector3 | null) =>
     set({ mousePosition: position }),
+  dragState: { isDragging: false, draggedPoint: null, startPosition: null },
+  setDragState: (state: DragState) => set({ dragState: state }),
   addPoint: (position: THREE.Vector3) => {
     const pointId = `p${Date.now()}`;
+    const operation = {
+      type: "setPoint" as const,
+      data: { id: pointId, point: { x: position.x, y: 0, z: position.z } },
+    };
+    const newCRDT = applyOperation(get().crdt, operation);
+    set({ crdt: newCRDT });
+  },
+
+  updatePoint: (pointId: string, position: THREE.Vector3) => {
     const operation = {
       type: "setPoint" as const,
       data: { id: pointId, point: { x: position.x, y: 0, z: position.z } },

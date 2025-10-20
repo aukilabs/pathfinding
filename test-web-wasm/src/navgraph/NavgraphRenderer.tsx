@@ -9,6 +9,7 @@ import { createMeshes } from "./TestLegacyNavmesh";
 import { initialize, add } from "auki-pathfinding/wasm";
 import { useThree } from "@react-three/fiber";
 import { useNavgraphEditingState } from "../editing/NavgraphEditingState";
+import { OrbitControls } from "@react-three/drei";
 
 initialize().then(() => {
   console.log("WASM initialized");
@@ -25,6 +26,10 @@ export default function NavgraphRenderer({}: {}) {
   const startRef = useRef<THREE.Object3D>(null);
   const endRef = useRef<THREE.Object3D>(null);
 
+  useEffect(() => {
+    console.log("editor.crdt.state", editor.crdt.state);
+  }, [editor.crdt.state]);
+
   // Initialize refs with initial positions
   useEffect(() => {
     if (startRef.current) {
@@ -37,7 +42,7 @@ export default function NavgraphRenderer({}: {}) {
 
   const pathfinder = useMemo(() => {
     return new Pathfinder({ maxOffGraphDistance: 10 });
-  }, []);
+  }, [editor.crdt.state]);
 
   useEffect(() => {
     const asyncLoad = async () => {
@@ -147,18 +152,62 @@ export default function NavgraphRenderer({}: {}) {
         if (intersection) {
           editor.setMousePosition(intersection);
         }
+      } else if (editor.dragState.isDragging && editor.dragState.draggedPoint) {
+        const intersection = getIntersectionFromClick(event);
+        if (intersection) {
+          editor.updatePoint(editor.dragState.draggedPoint, intersection);
+        }
       }
     },
-    [editor.edgeDrawingState.isDrawing, getIntersectionFromClick]
+    [
+      editor.edgeDrawingState.isDrawing,
+      editor.dragState.isDragging,
+      editor.dragState.draggedPoint,
+      getIntersectionFromClick,
+      editor.updatePoint,
+    ]
   );
+
+  const handlePointMouseDown = useCallback(
+    (pointId: string, event: React.MouseEvent) => {
+      event.stopPropagation();
+
+      if (
+        editor.currentTool === "select" &&
+        editor.selectedPoints.has(pointId)
+      ) {
+        const point = pathfinder.getMapPoint(pointId);
+        if (point) {
+          editor.setDragState({
+            isDragging: true,
+            draggedPoint: pointId,
+            startPosition: new THREE.Vector3(point.x, point.y ?? 0, point.z),
+          });
+        }
+      }
+    },
+    [editor.currentTool, editor.selectedPoints, editor.setDragState, pathfinder]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    if (editor.dragState.isDragging) {
+      editor.setDragState({
+        isDragging: false,
+        draggedPoint: null,
+        startPosition: null,
+      });
+    }
+  }, [editor.dragState.isDragging, editor.setDragState]);
 
   return (
     <group>
+      <OrbitControls enabled={!editor.dragState.isDragging} makeDefault />
       <mesh
         position={[0, -0.1, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
         onClick={handleEmptySpaceClick}
         onPointerMove={handleMouseMove}
+        onPointerUp={handleMouseUp}
       >
         <planeGeometry args={[100, 100]} />
         <meshBasicMaterial transparent opacity={0} />
@@ -216,11 +265,28 @@ export default function NavgraphRenderer({}: {}) {
               onClick={(event: React.MouseEvent) =>
                 handlePointClick(pointId, event)
               }
+              onPointerDown={(event: React.MouseEvent) =>
+                handlePointMouseDown(pointId, event)
+              }
             >
-              <sphereGeometry args={[0.1, 32, 32]} />
+              <sphereGeometry
+                args={[
+                  editor.dragState.isDragging &&
+                  editor.dragState.draggedPoint === pointId
+                    ? 0.15
+                    : 0.1,
+                  32,
+                  32,
+                ]}
+              />
               <meshStandardMaterial
                 color={
-                  editor.selectedPoints.has(pointId) ? "#00FF00" : "#FF0000"
+                  editor.dragState.isDragging &&
+                  editor.dragState.draggedPoint === pointId
+                    ? "#FFFF00"
+                    : editor.selectedPoints.has(pointId)
+                    ? "#00FF00"
+                    : "#FF0000"
                 }
                 depthTest={false}
               />

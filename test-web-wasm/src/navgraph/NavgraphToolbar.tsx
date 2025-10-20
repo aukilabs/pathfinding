@@ -158,6 +158,22 @@ export default function NavgraphToolbar() {
               </Button>
             ))}
           </div>
+          <div className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
+            <Button
+              className="px-3 py-1 rounded bg-gray-200 disabled:opacity-50"
+              onPress={() => editingState.undo()}
+              isDisabled={editingState.crdt.operations.length === 0}
+            >
+              Undo
+            </Button>
+            <Button
+              className="px-3 py-1 rounded bg-gray-200 disabled:opacity-50"
+              onPress={() => editingState.redo()}
+              isDisabled={editingState.crdt.redoStack.length === 0}
+            >
+              Redo
+            </Button>
+          </div>
         </div>
       </div>
     </>
