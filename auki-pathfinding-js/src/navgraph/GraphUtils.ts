@@ -182,8 +182,6 @@ export function buildPolygonFromArea(
   const area = map.areas[areaId];
   if (!area) return null;
 
-  console.log("Building polygon for area:", area.edges);
-
   // Build ordered polygon from area edges
   const edgeMap = new Map<string, { from: string; to: string }>();
   area.edges.forEach((edgeId) => {
@@ -192,8 +190,6 @@ export function buildPolygonFromArea(
       edgeMap.set(edgeId, edge);
     }
   });
-
-  console.log("Edge map:", Object.fromEntries(edgeMap));
 
   // Find a starting edge and build the polygon
   const polygon: THREE.Vector3Like[] = [];
@@ -209,13 +205,6 @@ export function buildPolygonFromArea(
   let currentPoint = firstEdge.from;
   let currentEdgeId: string | undefined = firstEdgeId;
 
-  console.log(
-    "Starting with edge:",
-    currentEdgeId,
-    "from point:",
-    currentPoint
-  );
-
   while (currentEdgeId && !visited.has(currentEdgeId)) {
     visited.add(currentEdgeId);
 
@@ -226,7 +215,6 @@ export function buildPolygonFromArea(
     }
 
     const point = map.points[currentPoint];
-    console.log("Adding point:", currentPoint, "at", point);
     polygon.push(point);
     currentPoint = edge.to;
 
@@ -250,10 +238,7 @@ export function buildPolygonFromArea(
         e.to = temp;
       }
     }
-
-    console.log("Next edge:", currentEdgeId);
   }
 
-  console.log("Final polygon:", polygon);
   return polygon.length > 2 ? polygon : null;
 }

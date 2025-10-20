@@ -361,69 +361,45 @@ export class Pathfinder {
       const currentNode = graphPath[i];
       const nextNode = graphPath[i + 1];
 
-      if (currentNode === constants.FROM_INTERMEDIATE) {
-        // Check for direct connection to TO_INTERMEDIATE
-        if (nextNode === constants.TO_INTERMEDIATE) {
-          const directPath = tempPaths.get(constants.createDirectPathKey());
-          if (directPath) {
-            fullPath.push(...directPath);
-            i++; // Skip TO_INTERMEDIATE
-            continue;
-          }
-        }
+      // Try to find a precomputed path for this transition
+      let pathKey: string | undefined;
 
-        // Check if we have a precomputed path from intermediate to next node
-        if (nextNode && nextNode !== constants.TO_INTERMEDIATE) {
-          const precomputedPath = tempPaths.get(
-            constants.createFromIntermediatePathKey(nextNode)
-          ); // Use tempPaths
-          if (precomputedPath) {
-            fullPath.push(...precomputedPath);
-            i++; // Skip next node
-            continue;
-          }
+      if (nextNode) {
+        // Create path key using the same pattern for all nodes
+        pathKey = `${currentNode}-${nextNode}`;
+      }
+
+      // Check tempPaths first (for intermediate node paths)
+      if (pathKey) {
+        const precomputedPath = tempPaths.get(pathKey);
+        if (precomputedPath) {
+          fullPath.push(...precomputedPath);
+          continue;
         }
+      }
+
+      // Check edge weights for regular node-to-node connections
+      if (
+        pathKey &&
+        !constants.isIntermediateNode(currentNode) &&
+        !constants.isIntermediateNode(nextNode!)
+      ) {
+        const connections = this._edgeWeights.get(pathKey);
+        if (connections && connections.length > 0) {
+          const chosenConnection = connections.reduce((min, conn) =>
+            conn.weight < min.weight ? conn : min
+          );
+          fullPath.push(...chosenConnection.path);
+          continue;
+        }
+      }
+
+      // Fallback: add single point based on node type
+      if (currentNode === constants.FROM_INTERMEDIATE) {
         fullPath.push(fromResult.position);
       } else if (currentNode === constants.TO_INTERMEDIATE) {
-        // Check if we have a precomputed path from previous node to intermediate
-        if (i > 0) {
-          const prevNode = graphPath[i - 1];
-          const precomputedPath = tempPaths.get(
-            constants.createToIntermediatePathKey(prevNode)
-          ); // Use tempPaths
-          if (precomputedPath) {
-            fullPath.push(...precomputedPath);
-            continue;
-          }
-        }
         fullPath.push(toResult.position);
       } else {
-        // Check if there's a precomputed path between current and next node
-        if (
-          nextNode &&
-          nextNode !== constants.FROM_INTERMEDIATE &&
-          nextNode !== constants.TO_INTERMEDIATE
-        ) {
-          // Get all connections between these nodes
-          const connections = this._edgeWeights.get(
-            createEdgeWeightKey(currentNode, nextNode)
-          );
-
-          if (connections && connections.length > 0) {
-            // Find the connection with minimum weight (what Dijkstra chose)
-            const chosenConnection = connections.reduce((min, conn) =>
-              conn.weight < min.weight ? conn : min
-            );
-
-            fullPath.push(...chosenConnection.path);
-            i++; // Skip next node since we've already processed it
-            continue;
-          } else {
-            // No precomputed path found, just add the point
-          }
-        }
-
-        // No precomputed path, just add the point
         fullPath.push(this.getMapPointInternal(currentNode)!);
       }
     }
@@ -747,6 +723,7 @@ export class Pathfinder {
       if (fromEdge?.dir === undefined || fromEdge?.dir === 0) {
         // Bidirectional or undefined - add both directions
         fromConnections.push(fromResult.toPointId);
+        fromConnections.push(fromResult.fromPointId);
       } else if (fromEdge?.dir === 1) {
         // Forward only - only add toPointId
         fromConnections.push(fromResult.toPointId);
