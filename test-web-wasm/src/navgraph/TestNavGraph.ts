@@ -61,8 +61,12 @@ export const TestNavData: NavMap = {
     e54: { from: "p46", to: "p47" },
     e55: { from: "p47", to: "p48" },
     e56: { from: "p47", to: "p45" },
+    e57: { from: "p37", to: "p42" },
   },
   areas: {
+    a3: {
+      edges: ["e57", "e50", "e45"],
+    },
     a4: {
       edges: ["e32", "e33", "e35", "e36", "e34"],
     },

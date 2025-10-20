@@ -26,8 +26,11 @@ export class Pathfinder {
   private _edgeWeights: Map<string, EdgeWeightInfo[]> = new Map();
 
   private _areaMeshes: Record<string, THREE.Mesh> = {};
-  private _areaNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areas
-  private _areaNavMeshQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areas
+
+  // AreaGroup system for grouping adjacent areas
+  private _areaGroups: Map<string, string[]> = new Map(); // areaGroupId -> areaIds[]
+  private _areaGroupNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areaGroups
+  private _areaGroupNavMeshQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areaGroups
 
   private _legacyMeshes: THREE.Mesh[] = [];
   private _legacyNavMesh: NavMesh | null = null;
@@ -45,7 +48,7 @@ export class Pathfinder {
   }
 
   get navmeshes() {
-    return this._areaNavMeshes;
+    return this._areaGroupNavMeshes;
   }
 
   get areaMeshes() {
@@ -108,8 +111,8 @@ export class Pathfinder {
     this.initializeMapAreas();
     await this.initializeLegacyAreaNavMeshes();
     this.buildAdjacencyList();
-    await this.initializeAreaNavMeshes();
-    await this.initializeAreaDistances();
+    await this.initializeAreaGroupNavMeshes();
+    await this.initializeAreaGroupDistances();
     await this.initializeLegacyAreaConnections();
     this.isLoaded = true;
   }
@@ -165,18 +168,131 @@ export class Pathfinder {
     this._legacyNavMesh = null;
     this._legacyNavMeshQuery?.destroy();
     this._legacyNavMeshQuery = null;
-    this._areaNavMeshes.forEach((navMesh) => navMesh.destroy());
-    this._areaNavMeshes.clear();
-    this._areaNavMeshQueries.forEach((query) => query.destroy());
-    this._areaNavMeshQueries.clear();
+    this._areaGroupNavMeshes.forEach((navMesh) => navMesh.destroy());
+    this._areaGroupNavMeshes.clear();
+    this._areaGroupNavMeshQueries.forEach((query) => query.destroy());
+    this._areaGroupNavMeshQueries.clear();
   }
 
   setConfig(config: NavOptions) {
     this._config = { ...this._config, ...config };
   }
 
+  /**
+   * Find areas that share edges (are adjacent) and group them together
+   */
+  private buildAreaGroups(): void {
+    this._areaGroups.clear();
+
+    if (!this._map) return;
+
+    const areaIds = Object.keys(this._map.areas);
+    const visited = new Set<string>();
+    let groupId = 0;
+
+    for (const areaId of areaIds) {
+      if (visited.has(areaId)) continue;
+
+      // Start a new group with this area
+      const currentGroup: string[] = [areaId];
+      visited.add(areaId);
+
+      // Find all areas that share edges with any area in this group
+      let foundNewAreas = true;
+      while (foundNewAreas) {
+        foundNewAreas = false;
+
+        for (const groupAreaId of currentGroup) {
+          const adjacentAreas = this.findAdjacentAreas(groupAreaId);
+
+          for (const adjacentAreaId of adjacentAreas) {
+            if (!visited.has(adjacentAreaId)) {
+              currentGroup.push(adjacentAreaId);
+              visited.add(adjacentAreaId);
+              foundNewAreas = true;
+            }
+          }
+        }
+      }
+
+      // Store this group
+      const groupKey = `group_${groupId++}`;
+      this._areaGroups.set(groupKey, currentGroup);
+    }
+  }
+
+  /**
+   * Get the areaGroup that contains the given area
+   */
+  private getAreaGroupForArea(areaId: string): string | null {
+    for (const [groupId, areaIds] of this._areaGroups) {
+      if (areaIds.includes(areaId)) {
+        return groupId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get all areaGroups that contain any of the given areas
+   */
+  private getAreaGroupsForAreas(areaIds: string[]): string[] {
+    const groupIds = new Set<string>();
+    for (const areaId of areaIds) {
+      const groupId = this.getAreaGroupForArea(areaId);
+      if (groupId) {
+        groupIds.add(groupId);
+      }
+    }
+    return Array.from(groupIds);
+  }
+
+  /**
+   * Check if an edge belongs to any areaGroup
+   */
+  private getAreaGroupsContainingEdge(edgeId: string): string[] {
+    const areaIds = mapUtils.getAreasContainingEdge(this._map, edgeId);
+    return this.getAreaGroupsForAreas(areaIds);
+  }
+
+  /**
+   * Find areas that share at least one edge with the given area
+   */
+  private findAdjacentAreas(areaId: string): string[] {
+    if (!this._map) return [];
+
+    const area = this._map.areas[areaId];
+    if (!area) return [];
+
+    const adjacentAreas = new Set<string>();
+
+    // Check each edge in this area
+    for (const edgeId of area.edges) {
+      const edge = this._map.edges[edgeId];
+      if (!edge) continue;
+
+      // Find all areas that contain this edge
+      const areasContainingEdge = mapUtils.getAreasContainingEdge(
+        this._map,
+        edgeId
+      );
+
+      // Add all areas except the current one
+      for (const otherAreaId of areasContainingEdge) {
+        if (otherAreaId !== areaId) {
+          adjacentAreas.add(otherAreaId);
+        }
+      }
+    }
+
+    return Array.from(adjacentAreas);
+  }
+
   private buildAdjacencyList() {
     if (!this._map) return;
+
+    // Build area groups first
+    this.buildAreaGroups();
 
     // Initialize adjacency list for original points only
     Object.keys(this._map.points).forEach((pointId) => {
@@ -189,11 +305,11 @@ export class Pathfinder {
       const toPoint = this.getMapPointInternal(edge.to)!;
 
       if (fromPoint && toPoint) {
-        // Check if this edge belongs to any area
-        const edgeAreas = mapUtils.getAreasContainingEdge(this._map, edgeId);
-        const isAreaEdge = edgeAreas.length > 0;
+        // Check if this edge belongs to any areaGroup
+        const edgeAreaGroups = this.getAreaGroupsContainingEdge(edgeId);
+        const isAreaEdge = edgeAreaGroups.length > 0;
 
-        // Skip edges that belong to areas - they'll be handled by exit-to-exit connections
+        // Skip edges that belong to areaGroups - they'll be handled by exit-to-exit connections
         if (isAreaEdge) {
           return;
         }
@@ -242,26 +358,34 @@ export class Pathfinder {
       }
     });
 
-    // Add area-based exit-to-exit connections
-    Object.entries(this._map.areas).forEach(([areaId, area]) => {
-      const exitPoints = mapUtils.findExitPoints(
-        this._map,
-        areaId,
-        this._legacyNavMeshQuery
-      );
+    // Add areaGroup-based exit-to-exit connections
+    this._areaGroups.forEach((areaIds, groupId) => {
+      const allExitPoints = new Set<string>();
 
-      // Connect all exit points within the same area
-      for (let i = 0; i < exitPoints.length; i++) {
-        for (let j = 0; j < exitPoints.length; j++) {
+      // Collect all exit points from all areas in this group
+      for (const areaId of areaIds) {
+        const exitPoints = mapUtils.findExitPoints(
+          this._map,
+          areaId,
+          this._legacyNavMeshQuery
+        );
+        exitPoints.forEach((pointId) => allExitPoints.add(pointId));
+      }
+
+      const exitPointsArray = Array.from(allExitPoints);
+
+      // Connect all exit points within the same areaGroup
+      for (let i = 0; i < exitPointsArray.length; i++) {
+        for (let j = 0; j < exitPointsArray.length; j++) {
           if (i !== j) {
-            const fromId = exitPoints[i];
-            const toId = exitPoints[j];
+            const fromId = exitPointsArray[i];
+            const toId = exitPointsArray[j];
 
             // Add bidirectional connection
             this._adjacencyList.get(fromId)!.push(toId);
             this._adjacencyList.get(toId)!.push(fromId);
 
-            // Weight will be set by initializeAreaDistances
+            // Weight will be set by initializeAreaGroupDistances
           }
         }
       }
@@ -784,27 +908,23 @@ export class Pathfinder {
 
     // Add connections from existing nodes to intermediate points
     const fromIsAreaEdge = fromIsLegacyEdge
-      ? []
-      : mapUtils.getAreasContainingEdge(this._map, fromResult.edgeId).length >
-        0;
+      ? false
+      : this.getAreaGroupsContainingEdge(fromResult.edgeId).length > 0;
     const toIsAreaEdge = toIsLegacyEdge
-      ? []
-      : mapUtils.getAreasContainingEdge(this._map, toResult.edgeId).length > 0;
+      ? false
+      : this.getAreaGroupsContainingEdge(toResult.edgeId).length > 0;
 
     const fromEdge = fromIsLegacyEdge
       ? null
       : this._map!.edges[fromResult.edgeId];
     const toEdge = toIsLegacyEdge ? null : this._map.edges[toResult.edgeId];
 
-    const fromEdgeAreas = fromIsLegacyEdge
+    const fromEdgeAreaGroups = fromIsLegacyEdge
       ? []
-      : mapUtils.getAreasContainingEdge(this._map, fromResult.edgeId);
-    const toEdgeAreas = toIsLegacyEdge
+      : this.getAreaGroupsContainingEdge(fromResult.edgeId);
+    const toEdgeAreaGroups = toIsLegacyEdge
       ? []
-      : mapUtils.getAreasContainingEdge(this._map, toResult.edgeId);
-
-    //const fromIsAreaEdge = fromEdgeAreas.length > 0;
-    //const toIsAreaEdge = toEdgeAreas.length > 0;
+      : this.getAreaGroupsContainingEdge(toResult.edgeId);
 
     // Handle legacy NavMesh edges
     if (fromIsLegacyEdge) {
@@ -869,19 +989,29 @@ export class Pathfinder {
         console.log("No legacy NavMesh query available");
       }
     }
-    // Handle area edges by computing NavMesh paths to nearest exit points
+    // Handle areaGroup edges by computing NavMesh paths to nearest exit points
     else if (fromIsAreaEdge) {
-      const areaId = fromEdgeAreas[0];
+      const areaGroupId = fromEdgeAreaGroups[0];
 
-      const bothInSameArea = toIsAreaEdge && toEdgeAreas[0] === areaId;
+      const bothInSameAreaGroup =
+        toIsAreaEdge && toEdgeAreaGroups[0] === areaGroupId;
 
-      if (!bothInSameArea) {
-        const exitPoints = mapUtils.findExitPoints(
-          this._map,
-          areaId,
-          this._legacyNavMeshQuery
-        );
-        const navMeshQuery = this._areaNavMeshQueries.get(areaId);
+      if (!bothInSameAreaGroup) {
+        // Collect all exit points from all areas in this group
+        const allExitPoints = new Set<string>();
+        const areaIds = this._areaGroups.get(areaGroupId) || [];
+
+        for (const areaId of areaIds) {
+          const exitPoints = mapUtils.findExitPoints(
+            this._map,
+            areaId,
+            this._legacyNavMeshQuery
+          );
+          exitPoints.forEach((pointId) => allExitPoints.add(pointId));
+        }
+
+        const exitPoints = Array.from(allExitPoints);
+        const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
 
         if (exitPoints.length > 0 && navMeshQuery) {
           const connectedExits: string[] = [];
@@ -990,11 +1120,15 @@ export class Pathfinder {
       }
     }
 
-    // Special case: handle same-area direct connections
-    if (fromIsAreaEdge && toIsAreaEdge && fromEdgeAreas[0] === toEdgeAreas[0]) {
-      // Both 'from' and 'to' are in the same area - check for direct connection
-      const areaId = fromEdgeAreas[0];
-      const navMeshQuery = this._areaNavMeshQueries.get(areaId);
+    // Special case: handle same-areaGroup direct connections
+    if (
+      fromIsAreaEdge &&
+      toIsAreaEdge &&
+      fromEdgeAreaGroups[0] === toEdgeAreaGroups[0]
+    ) {
+      // Both 'from' and 'to' are in the same areaGroup - check for direct connection
+      const areaGroupId = fromEdgeAreaGroups[0];
+      const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
 
       if (navMeshQuery) {
         const fromV3 = new THREE.Vector3().copy(fromResult.position);
@@ -1070,20 +1204,30 @@ export class Pathfinder {
         }
       }
     }
-    // Handle area edges for 'to'
+    // Handle areaGroup edges for 'to'
     else if (toIsAreaEdge) {
-      const areaId = toEdgeAreas[0];
+      const areaGroupId = toEdgeAreaGroups[0];
 
-      // Check if both points are in the same area - if so, skip exit connections
-      const bothInSameArea = fromIsAreaEdge && fromEdgeAreas[0] === areaId;
+      // Check if both points are in the same areaGroup - if so, skip exit connections
+      const bothInSameAreaGroup =
+        fromIsAreaEdge && fromEdgeAreaGroups[0] === areaGroupId;
 
-      if (!bothInSameArea) {
-        const exitPoints = mapUtils.findExitPoints(
-          this._map,
-          areaId,
-          this._legacyNavMeshQuery
-        );
-        const navMeshQuery = this._areaNavMeshQueries.get(areaId);
+      if (!bothInSameAreaGroup) {
+        // Collect all exit points from all areas in this group
+        const allExitPoints = new Set<string>();
+        const areaIds = this._areaGroups.get(areaGroupId) || [];
+
+        for (const areaId of areaIds) {
+          const exitPoints = mapUtils.findExitPoints(
+            this._map,
+            areaId,
+            this._legacyNavMeshQuery
+          );
+          exitPoints.forEach((pointId) => allExitPoints.add(pointId));
+        }
+
+        const exitPoints = Array.from(allExitPoints);
+        const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
 
         if (exitPoints.length > 0 && navMeshQuery) {
           const connectedExits: string[] = [];
@@ -1251,42 +1395,6 @@ export class Pathfinder {
     };
   }
 
-  async initializeAreaNavMeshes(): Promise<void> {
-    this._areaNavMeshes.clear();
-    this._areaNavMeshQueries.clear();
-    if (!this._map) return;
-
-    for (const areaId of Object.keys(this._areaMeshes)) {
-      const mesh = this._areaMeshes[areaId];
-
-      if (mesh) {
-        try {
-          const nmResult = threeToSoloNavMesh([mesh], {
-            walkableRadius: 0,
-            cs: 0.05,
-            ch: 0.05,
-            maxSimplificationError: 0.5,
-            minRegionArea: 0,
-            mergeRegionArea: 0,
-            detailSampleDist: 2,
-            detailSampleMaxError: 0.5,
-            maxEdgeLen: 30,
-          });
-          if (!nmResult.success || !nmResult.navMesh) {
-            console.error("Failed to create nav mesh for area:", areaId);
-            continue;
-          }
-          this._areaNavMeshes.set(areaId, nmResult.navMesh);
-
-          const query = new NavMeshQuery(nmResult.navMesh);
-          this._areaNavMeshQueries.set(areaId, query);
-        } catch (error) {
-          console.error("Failed to create zone for area:", areaId, error);
-        }
-      }
-    }
-  }
-
   private async initializeLegacyAreaNavMeshes(): Promise<void> {
     if (!this._map) return;
 
@@ -1379,24 +1487,67 @@ export class Pathfinder {
     }
   }
 
-  private async initializeAreaDistances(): Promise<void> {
+  private async initializeAreaGroupNavMeshes(): Promise<void> {
     if (!this._map) return;
 
-    for (const areaId of Object.keys(this._map.areas)) {
-      const navMesh = this._areaNavMeshQueries.get(areaId);
+    for (const [groupId, areaIds] of this._areaGroups) {
+      // Collect all area meshes in this group
+      const areaMeshes: THREE.Mesh[] = [];
+
+      for (const areaId of areaIds) {
+        const areaMesh = this._areaMeshes[areaId];
+        if (areaMesh) {
+          areaMeshes.push(areaMesh);
+        }
+      }
+
+      if (areaMeshes.length === 0) continue;
+
+      try {
+        const nmResult = threeToSoloNavMesh(areaMeshes, {
+          ...constants.DEFAULT_NAVMESH_PARAMS,
+        });
+        if (nmResult.navMesh) {
+          this._areaGroupNavMeshes.set(groupId, nmResult.navMesh);
+
+          const navMeshQuery = new NavMeshQuery(nmResult.navMesh);
+          this._areaGroupNavMeshQueries.set(groupId, navMeshQuery);
+        }
+      } catch (error) {
+        console.error(
+          `Failed to build NavMesh for areaGroup ${groupId}:`,
+          error
+        );
+      }
+    }
+  }
+
+  private async initializeAreaGroupDistances(): Promise<void> {
+    if (!this._map) return;
+
+    for (const [groupId, areaIds] of this._areaGroups) {
+      const navMesh = this._areaGroupNavMeshQueries.get(groupId);
       if (!navMesh) continue;
 
-      const exitPoints = mapUtils.findExitPoints(
-        this._map,
-        areaId,
-        this._legacyNavMeshQuery
-      );
+      const allExitPoints = new Set<string>();
 
-      // Pre-compute distances between all pairs of exit points
-      for (let i = 0; i < exitPoints.length; i++) {
-        for (let j = i + 1; j < exitPoints.length; j++) {
-          const fromPointId = exitPoints[i];
-          const toPointId = exitPoints[j];
+      // Collect all exit points from all areas in this group
+      for (const areaId of areaIds) {
+        const exitPoints = mapUtils.findExitPoints(
+          this._map,
+          areaId,
+          this._legacyNavMeshQuery
+        );
+        exitPoints.forEach((pointId) => allExitPoints.add(pointId));
+      }
+
+      const exitPointsArray = Array.from(allExitPoints);
+
+      // Pre-compute distances between all pairs of exit points in this areaGroup
+      for (let i = 0; i < exitPointsArray.length; i++) {
+        for (let j = i + 1; j < exitPointsArray.length; j++) {
+          const fromPointId = exitPointsArray[i];
+          const toPointId = exitPointsArray[j];
 
           const fromPoint = this.getMapPointInternal(fromPointId)!;
           const toPoint = this.getMapPointInternal(toPointId)!;
