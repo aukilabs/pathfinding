@@ -42,7 +42,7 @@ export default function NavgraphRenderer({}: {}) {
 
   const pathfinder = useMemo(() => {
     return new Pathfinder({ maxOffGraphDistance: 10 });
-  }, [editor.crdt.state]);
+  }, []);
 
   useEffect(() => {
     const asyncLoad = async () => {
