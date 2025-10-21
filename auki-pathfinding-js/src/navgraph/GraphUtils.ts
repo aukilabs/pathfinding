@@ -215,39 +215,28 @@ export function getNearestPositionOnEdge(
 
 export function addAdjacency(
   adjacencyList: Map<string, string[]>,
+  edgeWeights: Map<string, EdgeWeightInfo[]>,
   nodeId: string,
   neighborId: string,
-  bidirectional: boolean
+  bidirectional: boolean,
+  weightInfo: EdgeWeightInfo
 ): void {
   const neighbors = adjacencyList.get(nodeId) || [];
   if (!neighbors.includes(neighborId)) {
     neighbors.push(neighborId);
     adjacencyList.set(nodeId, neighbors);
   }
-  if (bidirectional) {
-    //use recursion to add the neighbor to the adjacency list
-    addAdjacency(adjacencyList, neighborId, nodeId, false);
-  }
-}
 
-export function addEdgeWeight(
-  edgeWeights: Map<string, EdgeWeightInfo[]>,
-  fromId: string,
-  toId: string,
-  bidirectional: boolean,
-  weightInfo: EdgeWeightInfo
-): void {
-  const key = createEdgeWeightKey(fromId, toId);
+  const key = createEdgeWeightKey(nodeId, neighborId);
   const existing = edgeWeights.get(key) || [];
   existing.push(weightInfo);
   edgeWeights.set(key, existing);
+
   if (bidirectional) {
-    const reversedKey = createEdgeWeightKey(toId, fromId);
-    const reversedExisting = edgeWeights.get(reversedKey) || [];
-    reversedExisting.push({
+    //use recursion to add the neighbor to the adjacency list
+    addAdjacency(adjacencyList, edgeWeights, neighborId, nodeId, false, {
       weight: weightInfo.weight,
       path: weightInfo.path.toReversed(),
     });
-    edgeWeights.set(reversedKey, reversedExisting);
   }
 }

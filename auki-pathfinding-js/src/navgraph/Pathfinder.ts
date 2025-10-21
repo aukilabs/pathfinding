@@ -8,7 +8,7 @@ import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
 const { createEdgeWeightKey } = constants;
-const { addAdjacency, addEdgeWeight } = graphUtils;
+const { addAdjacency } = graphUtils;
 
 export type NavOptions = {
   maxDistance?: number;
@@ -106,11 +106,11 @@ export class Pathfinder {
     await init();
     this.initializeMapAreas();
     this.buildAreaGroups();
-    await this.initializeLegacyAreaNavMeshes();
-    this.buildAdjacencyList();
-    await this.initializeAreaGroupNavMeshes();
-    await this.initializeAreaGroupDistances();
-    await this.initializeLegacyAreaConnections();
+    this.initializeLegacyAreaNavMeshes();
+    this.buildEdgeConnections();
+    this.initializeAreaGroupNavMeshes();
+    this.initializeAreaGroupDistances();
+    this.initializeLegacyAreaConnections();
     this.isLoaded = true;
   }
 
@@ -260,86 +260,67 @@ export class Pathfinder {
     return Array.from(adjacentAreas);
   }
 
-  private buildAdjacencyList() {
+  private buildEdgeConnections() {
     if (!this._map) return;
-
-    // Initialize adjacency list for original points only
-    Object.keys(this._map.points).forEach((pointId) => {
-      this._adjacencies.set(pointId, []);
-    });
 
     // Build connections and calculate weights
     Object.entries(this._map.edges).forEach(([edgeId, edge]) => {
       const fromPoint = this.getMapPointInternal(edge.from)!;
       const toPoint = this.getMapPointInternal(edge.to)!;
 
-      if (fromPoint && toPoint) {
-        // Check if this edge belongs to any areaGroup
-        const edgeAreaGroups = this.getAreaGroupsContainingEdge(edgeId);
-        const isAreaEdge = edgeAreaGroups.length > 0;
+      if (!fromPoint || !toPoint) {
+        return;
+      }
 
-        // Skip edges that belong to areaGroups - they'll be handled by exit-to-exit connections
-        if (isAreaEdge) {
-          return;
-        }
+      // Check if this edge belongs to any areaGroup
+      const edgeAreaGroups = this.getAreaGroupsContainingEdge(edgeId);
+      const isAreaEdge = edgeAreaGroups.length > 0;
 
-        // Calculate edge weight (distance)
-        let weight = geometry.calculateDistance(fromPoint, toPoint);
+      // Skip edges that belong to areaGroups - they'll be handled by exit-to-exit connections
+      if (isAreaEdge) {
+        return;
+      }
 
-        // Apply weight multiplier if specified
-        const weightMultiplier = edge.weightMultiplier;
-        if (weightMultiplier !== undefined) {
-          weight *= weightMultiplier;
-        }
+      // Calculate edge weight (distance)
+      let weight = geometry.calculateDistance(fromPoint, toPoint);
 
-        if (!edge.dir) {
-          // Two-way edge - add bidirectional connections
-          addAdjacency(this._adjacencies, edge.from, edge.to, true);
-          addEdgeWeight(this._edgeWeights, edge.from, edge.to, true, {
+      // Apply weight multiplier if specified
+      const weightMultiplier = edge.weightMultiplier;
+      if (weightMultiplier !== undefined) {
+        weight *= weightMultiplier;
+      }
+
+      const doTo = edge.dir === undefined || edge.dir === 0 || edge.dir === 1;
+      const doFrom =
+        edge.dir === undefined || edge.dir === 0 || edge.dir === -1;
+
+      if (doTo) {
+        // One-way edge - only add from -> to connection
+        addAdjacency(
+          this._adjacencies,
+          this._edgeWeights,
+          edge.from,
+          edge.to,
+          false,
+          {
             weight,
             path: [fromPoint, toPoint],
-          });
-        } else if (edge.dir === 1) {
-          // One-way edge - only add from -> to connection
-          addAdjacency(this._adjacencies, edge.from, edge.to, false);
-          addEdgeWeight(this._edgeWeights, edge.from, edge.to, false, {
-            weight,
-            path: [fromPoint, toPoint],
-          });
-        } else if (edge.dir === -1) {
-          // One-way-reverse edge - only add to -> from connection
-          addAdjacency(this._adjacencies, edge.to, edge.from, false);
-          addEdgeWeight(this._edgeWeights, edge.to, edge.from, false, {
+          }
+        );
+      }
+      if (doFrom) {
+        // One-way-reverse edge - only add to -> from connection
+        addAdjacency(
+          this._adjacencies,
+          this._edgeWeights,
+          edge.to,
+          edge.from,
+          false,
+          {
             weight,
             path: [toPoint, fromPoint],
-          });
-        }
-      }
-    });
-
-    // Add areaGroup-based exit-to-exit connections
-    this._areaGroups.forEach((areaIds, groupId) => {
-      // Get true exit points for this areaGroup
-      const allExitPoints = graphUtils.findExitPointsForGroup(
-        this._map,
-        groupId,
-        areaIds,
-        this._legacyNavMeshQuery
-      );
-
-      const exitPointsArray = Array.from(allExitPoints);
-
-      // Connect all exit points within the same areaGroup
-      for (let i = 0; i < exitPointsArray.length; i++) {
-        for (let j = 0; j < exitPointsArray.length; j++) {
-          if (i !== j) {
-            const fromId = exitPointsArray[i];
-            const toId = exitPointsArray[j];
-
-            // Add bidirectional connection
-            addAdjacency(this._adjacencies, fromId, toId, true);
           }
-        }
+        );
       }
     });
   }
@@ -517,15 +498,9 @@ export class Pathfinder {
       const path = navMeshQuery.computePath(fromPoint, toPoint);
       if (path.success && path.path) {
         const distance = geometry.calculatePathLength(path.path);
-        addAdjacency(adjacencyList, fromId, toId, true);
-        addEdgeWeight(edgeWeights, fromId, toId, true, {
+        addAdjacency(adjacencyList, edgeWeights, fromId, toId, true, {
           weight: distance,
           path: path.path,
-        });
-        //add reverse connection
-        addEdgeWeight(edgeWeights, toId, fromId, true, {
-          weight: distance,
-          path: path.path.toReversed(),
         });
         return true;
       }
@@ -567,33 +542,37 @@ export class Pathfinder {
     } else {
       // Respect edge direction for FROM_INTERMEDIATE connections
       const fromEdge = this.getMapEdge(node.edgeId);
+      if (!fromEdge) return;
+      const dir = fromEdge.dir;
+      const doTo = dir === undefined || dir === 0 || dir === 1;
+      const doFrom = dir === undefined || dir === 0 || dir === -1;
 
-      if (fromEdge?.dir === undefined || fromEdge?.dir === 0) {
+      if (doTo) {
         // Bidirectional or undefined - add both directions
-        addAdjacency(tempAdjacencies, nodeId, node.toPointId, true);
-        addAdjacency(tempAdjacencies, nodeId, node.fromPointId, true);
-        addEdgeWeight(tempEdgeWeights, nodeId, node.toPointId, true, {
-          weight: node.distance,
-          path: [node.position, this.getMapPointInternal(node.toPointId)!],
-        });
-        addEdgeWeight(tempEdgeWeights, nodeId, node.fromPointId, true, {
-          weight: node.distance,
-          path: [node.position, this.getMapPointInternal(node.fromPointId)!],
-        });
-      } else if (fromEdge?.dir === 1) {
-        // Forward only - only add toPointId
-        addAdjacency(tempAdjacencies, nodeId, node.toPointId, true);
-        addEdgeWeight(tempEdgeWeights, nodeId, node.toPointId, true, {
-          weight: node.distance,
-          path: [node.position, this.getMapPointInternal(node.toPointId)!],
-        });
-      } else if (fromEdge?.dir === -1) {
-        // Backward only - only add fromPointId
-        addAdjacency(tempAdjacencies, nodeId, node.fromPointId, true);
-        addEdgeWeight(tempEdgeWeights, nodeId, node.fromPointId, true, {
-          weight: node.distance,
-          path: [node.position, this.getMapPointInternal(node.fromPointId)!],
-        });
+        addAdjacency(
+          tempAdjacencies,
+          tempEdgeWeights,
+          nodeId,
+          node.toPointId,
+          true,
+          {
+            weight: node.distance,
+            path: [node.position, this.getMapPointInternal(node.toPointId)!],
+          }
+        );
+      }
+      if (doFrom) {
+        addAdjacency(
+          tempAdjacencies,
+          tempEdgeWeights,
+          nodeId,
+          node.fromPointId,
+          true,
+          {
+            weight: node.distance,
+            path: [node.position, this.getMapPointInternal(node.fromPointId)!],
+          }
+        );
       }
     }
 
@@ -877,10 +856,8 @@ export class Pathfinder {
     return pathfinding.reconstructPath(previous, from, to);
   }
 
-  private async initializeLegacyAreaNavMeshes(): Promise<void> {
+  private initializeLegacyAreaNavMeshes() {
     if (!this._map) return;
-
-    await init();
 
     const legacyMeshes = this._legacyMeshes;
     if (legacyMeshes.length === 0) {
@@ -910,7 +887,7 @@ export class Pathfinder {
     this._legacyNavMeshQuery = new NavMeshQuery(nmResult.navMesh);
   }
 
-  private async initializeLegacyAreaConnections(): Promise<void> {
+  private initializeLegacyAreaConnections() {
     if (!this._map) {
       return;
     }
@@ -955,7 +932,7 @@ export class Pathfinder {
     }
   }
 
-  private async initializeAreaGroupNavMeshes(): Promise<void> {
+  private initializeAreaGroupNavMeshes() {
     if (!this._map) return;
 
     for (const [groupId, areaIds] of this._areaGroups) {
@@ -991,7 +968,7 @@ export class Pathfinder {
     }
   }
 
-  private async initializeAreaGroupDistances(): Promise<void> {
+  private initializeAreaGroupDistances() {
     if (!this._map) return;
 
     for (const [groupId, areaIds] of this._areaGroups) {
@@ -1006,31 +983,25 @@ export class Pathfinder {
         this._legacyNavMeshQuery
       );
 
-      const exitPointsArray = Array.from(allExitPoints);
-
       // Pre-compute distances between all pairs of exit points in this areaGroup
-      for (let i = 0; i < exitPointsArray.length; i++) {
-        for (let j = i + 1; j < exitPointsArray.length; j++) {
-          const fromPointId = exitPointsArray[i];
-          const toPointId = exitPointsArray[j];
+      for (let i = 0; i < allExitPoints.length; i++) {
+        for (let j = i + 1; j < allExitPoints.length; j++) {
+          const fromPointId = allExitPoints[i];
+          const toPointId = allExitPoints[j];
 
           const fromPoint = this.getMapPointInternal(fromPointId)!;
           const toPoint = this.getMapPointInternal(toPointId)!;
 
           if (fromPoint && toPoint) {
-            const from = new THREE.Vector3().copy(fromPoint);
-            const to = new THREE.Vector3().copy(toPoint);
-
-            const path = navMesh.computePath(from, to);
-            if (path.success && path.path) {
-              const distance = geometry.calculatePathLength(path.path);
-
-              // Store both directions
-              addEdgeWeight(this._edgeWeights, fromPointId, toPointId, true, {
-                weight: distance,
-                path: path.path,
-              });
-            }
+            this.computeNavMeshPathAndConnect(
+              navMesh,
+              fromPoint,
+              toPoint,
+              fromPointId,
+              toPointId,
+              this._adjacencies,
+              this._edgeWeights
+            );
           }
         }
       }
