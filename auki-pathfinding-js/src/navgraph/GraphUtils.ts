@@ -4,6 +4,7 @@ import * as constants from "./Constants";
 import { NavMap, EdgeWeightInfo } from "./NavgraphTypes";
 import { NavMeshQuery } from "recast-navigation";
 import * as recastUtils from "./RecastUtils";
+import { createEdgeWeightKey } from "./Constants";
 
 export function addAdjacency(
   adjacencyList: Map<string, string[]>,
@@ -227,4 +228,16 @@ export function getNearestPositionOnEdge(
     toPointId: nearestToPointId!,
     distance: minDistance,
   };
+}
+
+export function addEdgeWeight(
+  edgeWeights: Map<string, EdgeWeightInfo[]>,
+  fromId: string,
+  toId: string,
+  weightInfo: EdgeWeightInfo
+): void {
+  const key = createEdgeWeightKey(fromId, toId);
+  const existing = edgeWeights.get(key) || [];
+  existing.push(weightInfo);
+  edgeWeights.set(key, existing);
 }

@@ -13,7 +13,7 @@ import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
 const { createEdgeWeightKey } = constants;
-const { addAdjacency } = graphUtils;
+const { addAdjacency, addEdgeWeight } = graphUtils;
 
 export type NavOptions = {
   maxDistance?: number;
@@ -327,13 +327,12 @@ export class Pathfinder {
         if (!edge.dir) {
           // Two-way edge - add bidirectional connections
           addAdjacency(this._adjacencies, edge.from, edge.to, true);
-
-          this.addEdgeWeight(edge.from, edge.to, {
+          addEdgeWeight(this._edgeWeights, edge.from, edge.to, {
             weight,
             type: "direct",
             path: [fromPoint, toPoint],
           });
-          this.addEdgeWeight(edge.to, edge.from, {
+          addEdgeWeight(this._edgeWeights, edge.to, edge.from, {
             weight,
             type: "direct",
             path: [toPoint, fromPoint],
@@ -341,7 +340,7 @@ export class Pathfinder {
         } else if (edge.dir === 1) {
           // One-way edge - only add from -> to connection
           addAdjacency(this._adjacencies, edge.from, edge.to, false);
-          this.addEdgeWeight(edge.from, edge.to, {
+          addEdgeWeight(this._edgeWeights, edge.from, edge.to, {
             weight,
             type: "direct",
             path: [fromPoint, toPoint],
@@ -349,7 +348,7 @@ export class Pathfinder {
         } else if (edge.dir === -1) {
           // One-way-reverse edge - only add to -> from connection
           addAdjacency(this._adjacencies, edge.to, edge.from, false);
-          this.addEdgeWeight(edge.to, edge.from, {
+          addEdgeWeight(this._edgeWeights, edge.to, edge.from, {
             weight,
             type: "direct",
             path: [toPoint, fromPoint],
@@ -419,13 +418,6 @@ export class Pathfinder {
       this._areaGroupNavMeshQueries
     );
 
-    console.log("AreaGroup detection:", {
-      fromAreaResult,
-      toAreaResult,
-      fromPosition: from,
-      toPosition: to,
-    });
-
     // Use unified pathfinding logic for all cases
     const fromResult = pathfinding.chooseClosestResult(
       fromEdgeResult,
@@ -448,14 +440,6 @@ export class Pathfinder {
         : null
     );
 
-    console.log("chooseClosestResult results:", {
-      fromResult: fromResult?.edgeId,
-      toResult: toResult?.edgeId,
-      fromIsAreaGroup:
-        fromResult?.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID,
-      toIsAreaGroup: toResult?.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID,
-    });
-
     if (!fromResult || !toResult) {
       return null;
     }
@@ -470,20 +454,18 @@ export class Pathfinder {
     }
 
     // Find the optimal path using Dijkstra with pre-computed area distances
-    const { tempAdjacencyList } = this.createTemporaryGraph(
-      fromResult,
-      toResult
-    );
+    const { tempAdjacencies: tempAdjacencyList, tempEdgeWeights } =
+      this.createTemporaryGraph(fromResult, toResult);
 
     let graphPath = this.dijkstraWithTempGraph(
       tempAdjacencyList,
+      tempEdgeWeights,
       constants.FROM_INTERMEDIATE,
       constants.TO_INTERMEDIATE
     );
 
     if (!graphPath) {
       console.log("No path found between intermediate points");
-
       return null;
     }
 
@@ -493,7 +475,8 @@ export class Pathfinder {
       fromResult,
       toResult,
       from,
-      to
+      to,
+      tempEdgeWeights
     );
   }
 
@@ -502,22 +485,45 @@ export class Pathfinder {
     fromResult: any,
     toResult: any,
     from: THREE.Vector3Like,
-    to: THREE.Vector3Like
+    to: THREE.Vector3Like,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>
   ): THREE.Vector3Like[] {
     const fullPath: THREE.Vector3Like[] = [from];
 
-    for (let i = 0; i < graphPath.length; i++) {
+    for (let i = 0; i < graphPath.length - 1; i++) {
       const currentNode = graphPath[i];
       const nextNode = graphPath[i + 1];
 
       if (nextNode) {
         // Create path key using the same pattern for all nodes
         const pathKey = createEdgeWeightKey(currentNode, nextNode);
-        const connections = this._edgeWeights.get(pathKey);
-        if (connections && connections.length > 0) {
-          const chosenConnection = connections.reduce((min, conn) =>
+        const staticConnections = this._edgeWeights.get(pathKey);
+        const tempConnections = tempEdgeWeights.get(pathKey);
+
+        let chosenStaticConnection: EdgeWeightInfo | null = null;
+        let chosenTempConnection: EdgeWeightInfo | null = null;
+        if (staticConnections && staticConnections.length > 0) {
+          chosenStaticConnection = staticConnections.reduce((min, conn) =>
             conn.weight < min.weight ? conn : min
           );
+        }
+        if (tempConnections && tempConnections.length > 0) {
+          chosenTempConnection = tempConnections.reduce((min, conn) =>
+            conn.weight < min.weight ? conn : min
+          );
+        }
+        let chosenConnection: EdgeWeightInfo | null = null;
+        if (chosenStaticConnection && chosenTempConnection) {
+          chosenConnection =
+            chosenStaticConnection.weight < chosenTempConnection.weight
+              ? chosenStaticConnection
+              : chosenTempConnection;
+        } else if (chosenStaticConnection) {
+          chosenConnection = chosenStaticConnection;
+        } else if (chosenTempConnection) {
+          chosenConnection = chosenTempConnection;
+        }
+        if (chosenConnection) {
           fullPath.push(...chosenConnection.path);
           continue;
         }
@@ -538,20 +544,6 @@ export class Pathfinder {
   }
 
   /**
-   * Helper function to add a connection to the edge weights list
-   */
-  private addEdgeWeight(
-    fromId: string,
-    toId: string,
-    weightInfo: EdgeWeightInfo
-  ): void {
-    const key = createEdgeWeightKey(fromId, toId);
-    const existing = this._edgeWeights.get(key) || [];
-    existing.push(weightInfo);
-    this._edgeWeights.set(key, existing);
-  }
-
-  /**
    * Helper function to compute NavMesh path and add connection
    */
   private computeNavMeshPathAndConnect(
@@ -560,20 +552,21 @@ export class Pathfinder {
     toPoint: THREE.Vector3Like,
     fromId: string,
     toId: string,
-    adjacencyList: Map<string, string[]>
+    adjacencyList: Map<string, string[]>,
+    edgeWeights: Map<string, EdgeWeightInfo[]>
   ): boolean {
     try {
       const path = navMeshQuery.computePath(fromPoint, toPoint);
       if (path.success && path.path) {
         const distance = geometry.calculatePathLength(path.path);
         addAdjacency(adjacencyList, fromId, toId, true);
-        this.addEdgeWeight(fromId, toId, {
+        addEdgeWeight(edgeWeights, fromId, toId, {
           weight: distance,
           type: "legacy",
           path: path.path,
         });
         //add reverse connection
-        this.addEdgeWeight(toId, fromId, {
+        addEdgeWeight(edgeWeights, toId, fromId, {
           weight: distance,
           type: "legacy",
           path: path.path.toReversed(),
@@ -590,71 +583,11 @@ export class Pathfinder {
   }
 
   /**
-   * Helper function to compute NavMesh path for precomputed area distances
-   */
-  private computePrecomputedNavMeshPath(
-    navMeshQuery: NavMeshQuery,
-    fromPoint: THREE.Vector3Like,
-    toPoint: THREE.Vector3Like,
-    fromId: string,
-    toId: string
-  ): boolean {
-    try {
-      const path = navMeshQuery.computePath(fromPoint, toPoint);
-      if (path.success && path.path) {
-        const navMeshDistance = geometry.calculatePathLength(path.path);
-
-        // Check if there's already a graph edge between these points
-        const existingWeightKey = createEdgeWeightKey(fromId, toId);
-        const invertedKey = createEdgeWeightKey(toId, fromId);
-        const existingConnections =
-          this._edgeWeights.get(existingWeightKey) || [];
-        const invertedConnections = this._edgeWeights.get(invertedKey) || [];
-
-        // Always add connection to adjacency list
-        addAdjacency(this._adjacencies, fromId, toId, true);
-
-        // Check if there's already a legacy connection in either direction
-        const hasLegacyConnection =
-          existingConnections.some((conn) => conn.type === "legacy") ||
-          invertedConnections.some((conn) => conn.type === "legacy");
-
-        // Only add legacy connection if it doesn't exist or if this one is shorter
-        const existingLegacyConnection =
-          existingConnections.find((c) => c.type === "legacy") ||
-          invertedConnections.find((c) => c.type === "legacy");
-        if (
-          !hasLegacyConnection ||
-          (existingLegacyConnection &&
-            navMeshDistance < existingLegacyConnection.weight)
-        ) {
-          this.addEdgeWeight(fromId, toId, {
-            weight: navMeshDistance,
-            type: "legacy",
-            path: path.path,
-          });
-          this.addEdgeWeight(toId, fromId, {
-            weight: navMeshDistance,
-            type: "legacy",
-            path: path.path.toReversed(),
-          });
-        }
-        return true;
-      }
-    } catch (error) {
-      console.error(
-        `Failed to compute path between ${fromId} and ${toId}:`,
-        error
-      );
-    }
-    return false;
-  }
-
-  /**
    * Helper function to connect intermediate point to edge points based on edge direction
    */
   private connectIntermediateToEdgePoints(
     tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     fromPosition: THREE.Vector3Like,
     fromResult: { fromPointId: string; toPointId: string },
     edgeDir?: number,
@@ -664,20 +597,32 @@ export class Pathfinder {
       // Two-way edge - connect to both points
       this.connectToPoint(
         tempAdjacencies,
+        tempEdgeWeights,
         fromPosition,
         fromResult.fromPointId
       );
-      this.connectToPoint(tempAdjacencies, fromPosition, fromResult.toPointId);
+      this.connectToPoint(
+        tempAdjacencies,
+        tempEdgeWeights,
+        fromPosition,
+        fromResult.toPointId
+      );
     } else if (edgeDir === 1) {
       // One-way edge - only connect to fromPoint
       this.connectToPoint(
         tempAdjacencies,
+        tempEdgeWeights,
         fromPosition,
         fromResult.fromPointId
       );
     } else if (edgeDir === -1) {
       // One-way-reverse edge - only connect to toPoint
-      this.connectToPoint(tempAdjacencies, fromPosition, fromResult.toPointId);
+      this.connectToPoint(
+        tempAdjacencies,
+        tempEdgeWeights,
+        fromPosition,
+        fromResult.toPointId
+      );
     }
   }
 
@@ -686,6 +631,7 @@ export class Pathfinder {
    */
   private connectToPoint(
     tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     fromPosition: THREE.Vector3Like,
     pointId: string
   ): void {
@@ -698,7 +644,7 @@ export class Pathfinder {
         constants.FROM_INTERMEDIATE,
         false
       );
-      this.addEdgeWeight(constants.FROM_INTERMEDIATE, pointId, {
+      addEdgeWeight(tempEdgeWeights, constants.FROM_INTERMEDIATE, pointId, {
         weight: distance,
         type: "legacy",
         path: [fromPosition, point],
@@ -711,6 +657,7 @@ export class Pathfinder {
    */
   private connectIntermediateToEdgePointsTo(
     tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     toPosition: THREE.Vector3Like,
     toResult: { fromPointId: string; toPointId: string },
     edgeDir?: number,
@@ -718,14 +665,34 @@ export class Pathfinder {
   ): void {
     if (!edgeDir || isAreaEdge) {
       // Two-way edge - connect to both points
-      this.connectToPointTo(tempAdjacencies, toPosition, toResult.fromPointId);
-      this.connectToPointTo(tempAdjacencies, toPosition, toResult.toPointId);
+      this.connectToPointTo(
+        tempAdjacencies,
+        tempEdgeWeights,
+        toPosition,
+        toResult.fromPointId
+      );
+      this.connectToPointTo(
+        tempAdjacencies,
+        tempEdgeWeights,
+        toPosition,
+        toResult.toPointId
+      );
     } else if (edgeDir === 1) {
       // One-way edge - only connect to fromPoint
-      this.connectToPointTo(tempAdjacencies, toPosition, toResult.fromPointId);
+      this.connectToPointTo(
+        tempAdjacencies,
+        tempEdgeWeights,
+        toPosition,
+        toResult.fromPointId
+      );
     } else if (edgeDir === -1) {
       // One-way-reverse edge - only connect to toPoint
-      this.connectToPointTo(tempAdjacencies, toPosition, toResult.toPointId);
+      this.connectToPointTo(
+        tempAdjacencies,
+        tempEdgeWeights,
+        toPosition,
+        toResult.toPointId
+      );
     }
   }
 
@@ -734,6 +701,7 @@ export class Pathfinder {
    */
   private connectToPointTo(
     tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     toPosition: THREE.Vector3Like,
     pointId: string
   ): void {
@@ -741,7 +709,7 @@ export class Pathfinder {
     if (point) {
       const distance = new THREE.Vector3().copy(point).distanceTo(toPosition);
       addAdjacency(tempAdjacencies, pointId, constants.TO_INTERMEDIATE, false);
-      this.addEdgeWeight(pointId, constants.TO_INTERMEDIATE, {
+      addEdgeWeight(tempEdgeWeights, pointId, constants.TO_INTERMEDIATE, {
         weight: distance,
         type: "legacy",
         path: [point, toPosition],
@@ -765,7 +733,8 @@ export class Pathfinder {
       distance: number;
     }
   ): {
-    tempAdjacencyList: Map<string, string[]>;
+    tempAdjacencies: Map<string, string[]>;
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>;
   } {
     // Check for mixed case: one point off-mesh, other in areaGroup, but edge belongs to same areaGroup
     // Case 1: from is off-mesh (regular edge), to is in areaGroup
@@ -814,6 +783,7 @@ export class Pathfinder {
 
     // Create a copy of the adjacency list
     const tempAdjacencies = new Map<string, string[]>();
+    const tempEdgeWeights = new Map<string, EdgeWeightInfo[]>();
 
     // Copy existing connections
     this._adjacencies.forEach((neighbors, nodeId) => {
@@ -840,6 +810,7 @@ export class Pathfinder {
 
       this.addPointToAllExitPoints(
         tempAdjacencies,
+        tempEdgeWeights,
         constants.FROM_INTERMEDIATE,
         fromResult.position,
         areaGroupId
@@ -872,6 +843,7 @@ export class Pathfinder {
 
       this.addPointToAllExitPoints(
         tempAdjacencies,
+        tempEdgeWeights,
         constants.TO_INTERMEDIATE,
         toResult.position,
         toResult.fromPointId
@@ -901,12 +873,6 @@ export class Pathfinder {
       toIsAreaGroupEdge &&
       fromResult.fromPointId === toResult.fromPointId
     ) {
-      console.log("Same areaGroup detected:", {
-        areaGroupId: fromResult.fromPointId,
-        fromPosition: fromResult.position,
-        toPosition: toResult.position,
-      });
-
       const areaGroupId = fromResult.fromPointId;
       const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
 
@@ -916,14 +882,6 @@ export class Pathfinder {
           const toV3 = new THREE.Vector3().copy(toResult.position);
 
           let path = navMeshQuery.computePath(fromV3, toV3);
-          console.log("Direct areaGroup path result:", {
-            success: path.success,
-            pathLength: path.path?.length,
-            hasPath: !!path.path,
-            fromPosition: fromV3,
-            toPosition: toV3,
-            error: path.error,
-          });
 
           // If path failed, try finding nearest points on NavMesh first
           if (!path.success) {
@@ -983,7 +941,8 @@ export class Pathfinder {
               constants.TO_INTERMEDIATE,
               true
             );
-            this.addEdgeWeight(
+            addEdgeWeight(
+              tempEdgeWeights,
               constants.FROM_INTERMEDIATE,
               constants.TO_INTERMEDIATE,
               {
@@ -1016,7 +975,8 @@ export class Pathfinder {
           constants.TO_INTERMEDIATE,
           true
         );
-        this.addEdgeWeight(
+        addEdgeWeight(
+          tempEdgeWeights,
           constants.FROM_INTERMEDIATE,
           constants.TO_INTERMEDIATE,
           {
@@ -1066,11 +1026,16 @@ export class Pathfinder {
               const path = legacyNavMeshQuery.computePath(fromV3, pointV3);
               if (path.success && path.path) {
                 const pathLength = geometry.calculatePathLength(path.path);
-                this.addEdgeWeight(constants.FROM_INTERMEDIATE, pointId, {
-                  weight: pathLength,
-                  type: "legacy",
-                  path: path.path,
-                });
+                addEdgeWeight(
+                  tempEdgeWeights,
+                  constants.FROM_INTERMEDIATE,
+                  pointId,
+                  {
+                    weight: pathLength,
+                    type: "legacy",
+                    path: path.path,
+                  }
+                );
                 connectedPoints.push(pointId);
               }
             } catch (error) {
@@ -1108,6 +1073,7 @@ export class Pathfinder {
       if (!bothInSameAreaGroup) {
         this.addPointToAllExitPoints(
           tempAdjacencies,
+          tempEdgeWeights,
           constants.FROM_INTERMEDIATE,
           fromResult.position,
           areaGroupId
@@ -1116,6 +1082,7 @@ export class Pathfinder {
     } else if (!fromIsLegacyEdge) {
       this.connectIntermediateToEdgePoints(
         tempAdjacencies,
+        tempEdgeWeights,
         fromResult.position,
         fromResult,
         fromEdge?.dir,
@@ -1177,7 +1144,8 @@ export class Pathfinder {
               constants.TO_INTERMEDIATE,
               true
             );
-            this.addEdgeWeight(
+            addEdgeWeight(
+              tempEdgeWeights,
               constants.FROM_INTERMEDIATE,
               constants.TO_INTERMEDIATE,
               {
@@ -1213,7 +1181,8 @@ export class Pathfinder {
           toV3,
           constants.FROM_INTERMEDIATE,
           constants.TO_INTERMEDIATE,
-          tempAdjacencies
+          tempAdjacencies,
+          tempEdgeWeights
         );
       }
     }
@@ -1236,11 +1205,16 @@ export class Pathfinder {
               const path = legacyNavMeshQuery.computePath(pointV3, toV3);
               if (path.success && path.path) {
                 const pathLength = geometry.calculatePathLength(path.path);
-                this.addEdgeWeight(pointId, constants.TO_INTERMEDIATE, {
-                  weight: pathLength,
-                  type: "legacy",
-                  path: path.path,
-                });
+                addEdgeWeight(
+                  tempEdgeWeights,
+                  pointId,
+                  constants.TO_INTERMEDIATE,
+                  {
+                    weight: pathLength,
+                    type: "legacy",
+                    path: path.path,
+                  }
+                );
                 connectedPoints.push(pointId);
               }
             } catch (error) {
@@ -1273,6 +1247,7 @@ export class Pathfinder {
       if (!bothInSameAreaGroup) {
         this.addPointToAllExitPoints(
           tempAdjacencies,
+          tempEdgeWeights,
           constants.TO_INTERMEDIATE,
           toResult.position,
           areaGroupId
@@ -1284,6 +1259,7 @@ export class Pathfinder {
 
       this.connectIntermediateToEdgePointsTo(
         tempAdjacencies,
+        tempEdgeWeights,
         toPosition,
         toResult,
         toEdge?.dir,
@@ -1291,11 +1267,15 @@ export class Pathfinder {
       );
     }
 
-    return { tempAdjacencyList: tempAdjacencies };
+    return {
+      tempAdjacencies,
+      tempEdgeWeights,
+    };
   }
 
   private addPointToAllExitPoints(
     tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     tempPointId: string,
     position: THREE.Vector3Like,
     areaGroupId: string
@@ -1321,7 +1301,8 @@ export class Pathfinder {
                 exitPosition,
                 tempPointId,
                 pointId,
-                tempAdjacencies
+                tempAdjacencies,
+                tempEdgeWeights
               );
             } catch (error) {
               console.error(
@@ -1337,6 +1318,7 @@ export class Pathfinder {
 
   private dijkstraWithTempGraph(
     tempGraph: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     from: string,
     to: string
   ): string[] | null {
@@ -1376,12 +1358,20 @@ export class Pathfinder {
       for (const neighbor of neighbors) {
         if (visited.has(neighbor)) continue;
 
-        const edgeWeightKey = createEdgeWeightKey(current, neighbor);
-        const edgeWeight = graphUtils.getEdgeWeight(
+        const staticEdgeWeight = graphUtils.getEdgeWeight(
           this._edgeWeights,
           current,
           neighbor
         );
+
+        const tempEdgeWeight = graphUtils.getEdgeWeight(
+          tempEdgeWeights,
+          current,
+          neighbor
+        );
+
+        const edgeWeight = Math.min(staticEdgeWeight, tempEdgeWeight);
+
         const newDist = distances.get(current)! + edgeWeight;
 
         if (newDist < (distances.get(neighbor) || Infinity)) {
@@ -1455,15 +1445,6 @@ export class Pathfinder {
     });
 
     // Add direct NavMesh connections between all pairs of intersecting points
-    // This treats the legacy NavMesh like an area with precomputed internal connections
-    await this.addDirectLegacyNavMeshConnections(intersectingPoints, lnmQuery);
-  }
-
-  private async addDirectLegacyNavMeshConnections(
-    intersectingPoints: string[],
-    navMeshQuery: NavMeshQuery
-  ): Promise<void> {
-    // Add direct NavMesh connections between all pairs of intersecting points
     for (let i = 0; i < intersectingPoints.length; i++) {
       for (let j = i + 1; j < intersectingPoints.length; j++) {
         const fromId = intersectingPoints[i];
@@ -1476,12 +1457,14 @@ export class Pathfinder {
         const fromV3 = new THREE.Vector3().copy(fromPoint);
         const toV3 = new THREE.Vector3().copy(toPoint);
 
-        this.computePrecomputedNavMeshPath(
-          navMeshQuery,
-          fromV3,
-          toV3,
+        this.computeNavMeshPathAndConnect(
+          lnmQuery,
+          fromPoint,
+          toPoint,
           fromId,
-          toId
+          toId,
+          this._adjacencies,
+          this._edgeWeights
         );
       }
     }
@@ -1557,12 +1540,12 @@ export class Pathfinder {
               const distance = geometry.calculatePathLength(path.path);
 
               // Store both directions
-              this.addEdgeWeight(fromPointId, toPointId, {
+              addEdgeWeight(this._edgeWeights, fromPointId, toPointId, {
                 weight: distance,
                 type: "areaGroup",
                 path: path.path,
               });
-              this.addEdgeWeight(toPointId, fromPointId, {
+              addEdgeWeight(this._edgeWeights, toPointId, fromPointId, {
                 weight: distance,
                 type: "areaGroup",
                 path: path.path.toReversed(),
