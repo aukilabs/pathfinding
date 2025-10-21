@@ -6,23 +6,6 @@ import { NavMeshQuery } from "recast-navigation";
 import * as recastUtils from "./RecastUtils";
 import { createEdgeWeightKey } from "./Constants";
 
-export function addAdjacency(
-  adjacencyList: Map<string, string[]>,
-  nodeId: string,
-  neighborId: string,
-  bidirectional: boolean
-): void {
-  const neighbors = adjacencyList.get(nodeId) || [];
-  if (!neighbors.includes(neighborId)) {
-    neighbors.push(neighborId);
-    adjacencyList.set(nodeId, neighbors);
-  }
-  if (bidirectional) {
-    //use recursion to add the neighbor to the adjacency list
-    addAdjacency(adjacencyList, neighborId, nodeId, false);
-  }
-}
-
 export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
   if (!map) return [];
 
@@ -230,6 +213,23 @@ export function getNearestPositionOnEdge(
   };
 }
 
+export function addAdjacency(
+  adjacencyList: Map<string, string[]>,
+  nodeId: string,
+  neighborId: string,
+  bidirectional: boolean
+): void {
+  const neighbors = adjacencyList.get(nodeId) || [];
+  if (!neighbors.includes(neighborId)) {
+    neighbors.push(neighborId);
+    adjacencyList.set(nodeId, neighbors);
+  }
+  if (bidirectional) {
+    //use recursion to add the neighbor to the adjacency list
+    addAdjacency(adjacencyList, neighborId, nodeId, false);
+  }
+}
+
 export function addEdgeWeight(
   edgeWeights: Map<string, EdgeWeightInfo[]>,
   fromId: string,
@@ -246,7 +246,6 @@ export function addEdgeWeight(
     const reversedExisting = edgeWeights.get(reversedKey) || [];
     reversedExisting.push({
       weight: weightInfo.weight,
-      type: weightInfo.type,
       path: weightInfo.path.toReversed(),
     });
     edgeWeights.set(reversedKey, reversedExisting);

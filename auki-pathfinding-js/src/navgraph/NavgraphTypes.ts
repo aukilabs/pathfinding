@@ -17,6 +17,5 @@ export type NavMap = { points: Points; edges: Edges; areas: Areas };
 // Enhanced edge weight information
 export type EdgeWeightInfo = {
   weight: number;
-  type: "direct" | "legacy" | "areaGroup";
   path: THREE.Vector3Like[];
 };

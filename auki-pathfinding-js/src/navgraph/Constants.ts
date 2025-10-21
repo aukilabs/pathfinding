@@ -20,7 +20,7 @@ export const TO_INTERMEDIATE = "to_intermediate";
 // ============================================================================
 
 /** Edge ID used to identify legacy NavMesh surface edges */
-export const LEGACY_NAVMESH_SURFACE_EDGE_ID = "_legacy_navmesh_surface";
+export const LEGACY_NAVMESH_EDGE_ID = "_legacy_navmesh_surface";
 
 /** Edge ID used to identify points within areaGroups */
 export const WITHIN_AREA_GROUP_EDGE_ID = "_within_graph_areagroup";
@@ -121,7 +121,7 @@ export const isIntermediateNode = (nodeId: string): boolean =>
 
 /** Check if an edge ID represents a legacy NavMesh surface */
 export const isLegacyNavMeshEdge = (edgeId: string): boolean =>
-  edgeId === LEGACY_NAVMESH_SURFACE_EDGE_ID;
+  edgeId === LEGACY_NAVMESH_EDGE_ID;
 
 // ============================================================================
 // UTILITY FUNCTIONS

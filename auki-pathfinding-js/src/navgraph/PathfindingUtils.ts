@@ -46,7 +46,7 @@ export function chooseClosestResult(
 function convertLegacyToEdgeResult(legacyResult: any): any {
   return {
     position: legacyResult.position,
-    edgeId: constants.LEGACY_NAVMESH_SURFACE_EDGE_ID,
+    edgeId: constants.LEGACY_NAVMESH_EDGE_ID,
     fromPointId: constants.LEGACY_PORTAL_FROM_FALLBACK,
     toPointId: constants.LEGACY_PORTAL_TO_FALLBACK,
     distance: legacyResult.distance,
