@@ -110,6 +110,7 @@ export class Pathfinder {
     this._legacyMeshes = legacyNavmesh;
     await init();
     this.initializeMapAreas();
+    this.buildAreaGroups();
     await this.initializeLegacyAreaNavMeshes();
     this.buildAdjacencyList();
     await this.initializeAreaGroupNavMeshes();
@@ -235,9 +236,10 @@ export class Pathfinder {
   }
 
   /**
-   * Get all areaGroups that contain any of the given areas
+   * Check if an edge belongs to any areaGroup
    */
-  private getAreaGroupsForAreas(areaIds: string[]): string[] {
+  private getAreaGroupsContainingEdge(edgeId: string): string[] {
+    const areaIds = graphUtils.getAreasContainingEdge(this._map, edgeId);
     const groupIds = new Set<string>();
     for (const areaId of areaIds) {
       const groupId = this.getAreaGroupForArea(areaId);
@@ -246,14 +248,6 @@ export class Pathfinder {
       }
     }
     return Array.from(groupIds);
-  }
-
-  /**
-   * Check if an edge belongs to any areaGroup
-   */
-  private getAreaGroupsContainingEdge(edgeId: string): string[] {
-    const areaIds = graphUtils.getAreasContainingEdge(this._map, edgeId);
-    return this.getAreaGroupsForAreas(areaIds);
   }
 
   /**
@@ -291,9 +285,6 @@ export class Pathfinder {
 
   private buildAdjacencyList() {
     if (!this._map) return;
-
-    // Build area groups first
-    this.buildAreaGroups();
 
     // Initialize adjacency list for original points only
     Object.keys(this._map.points).forEach((pointId) => {
@@ -454,11 +445,11 @@ export class Pathfinder {
     }
 
     // Find the optimal path using Dijkstra with pre-computed area distances
-    const { tempAdjacencies: tempAdjacencyList, tempEdgeWeights } =
-      this.createTemporaryGraph(fromResult, toResult);
+    const tempGraphResults = this.createTempGraph(fromResult, toResult);
+    const { tempAdjacencies, tempEdgeWeights } = tempGraphResults;
 
     let graphPath = this.dijkstraWithTempGraph(
-      tempAdjacencyList,
+      tempAdjacencies,
       tempEdgeWeights,
       constants.FROM_INTERMEDIATE,
       constants.TO_INTERMEDIATE
@@ -717,7 +708,7 @@ export class Pathfinder {
     }
   }
 
-  private createTemporaryGraph(
+  private createTempGraph(
     fromResult: {
       position: THREE.Vector3Like;
       edgeId: string;
