@@ -1,7 +1,13 @@
 import { init, NavMesh, NavMeshQuery } from "recast-navigation";
 import { threeToSoloNavMesh } from "@recast-navigation/three";
 import * as THREE from "three";
-import { Area, Edge, NavMap, EdgeWeightInfo } from "./NavgraphTypes";
+import {
+  Area,
+  Edge,
+  NavMap,
+  EdgeWeightInfo,
+  PathResult,
+} from "./NavgraphTypes";
 import * as geometry from "./GeometryUtils";
 import * as graphUtils from "./GraphUtils";
 import * as recastUtils from "./RecastUtils";
@@ -360,22 +366,12 @@ export class Pathfinder {
     const fromResult = pathfinding.chooseClosestResult(
       fromEdgeResult,
       fromLegacyResult,
-      fromAreaResult
-        ? {
-            areaGroupId: fromAreaResult,
-            position: from,
-          }
-        : null
+      fromAreaResult ? { areaGroupId: fromAreaResult, position: from } : null
     );
     const toResult = pathfinding.chooseClosestResult(
       toEdgeResult,
       toLegacyResult,
-      toAreaResult
-        ? {
-            areaGroupId: toAreaResult,
-            position: to,
-          }
-        : null
+      toAreaResult ? { areaGroupId: toAreaResult, position: to } : null
     );
 
     if (!fromResult || !toResult) {
@@ -517,20 +513,14 @@ export class Pathfinder {
     tempAdjacencies: Map<string, string[]>,
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     nodeId: string,
-    node: {
-      position: THREE.Vector3Like;
-      edgeId: string;
-      fromPointId: string;
-      toPointId: string;
-      distance: number;
-    }
+    node: PathResult
   ): void {
-    const isLegacyEdge = node.edgeId === constants.LEGACY_NAVMESH_EDGE_ID;
-    const isAreaGroupEdge = node.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
+    const isLegacyEdge = node.type === "legacy";
+    const isAreaGroupEdge = node.type === "areaGroup";
 
     if (isLegacyEdge) {
     } else if (isAreaGroupEdge) {
-      const areaGroupId = node.fromPointId; // This is the areaGroupId from chooseClosestResult
+      const areaGroupId = node.areaGroupId;
 
       this.addPointToAllExitPoints(
         tempAdjacencies,
@@ -540,8 +530,9 @@ export class Pathfinder {
         areaGroupId
       );
     } else {
-      // Respect edge direction for FROM_INTERMEDIATE connections
-      const fromEdge = this.getMapEdge(node.edgeId);
+      // Regular edge handling
+      const edgeId = node.edgeId;
+      const fromEdge = this.getMapEdge(edgeId);
       if (!fromEdge) return;
       const dir = fromEdge.dir;
       const doTo = dir === undefined || dir === 0 || dir === 1;
@@ -576,7 +567,9 @@ export class Pathfinder {
       }
     }
 
-    const fromEdgeAreaGroups = this.getAreaGroupsContainingEdge(node.edgeId);
+    const fromEdgeAreaGroups = this.getAreaGroupsContainingEdge(
+      node.type === "edge" ? node.edgeId : ""
+    );
     const fromIsAreaEdge = fromEdgeAreaGroups.length > 0;
 
     if (isLegacyEdge) {
@@ -612,20 +605,8 @@ export class Pathfinder {
   }
 
   private createTempGraph(
-    fromResult: {
-      position: THREE.Vector3Like;
-      edgeId: string;
-      fromPointId: string;
-      toPointId: string;
-      distance: number;
-    },
-    toResult: {
-      position: THREE.Vector3Like;
-      edgeId: string;
-      fromPointId: string;
-      toPointId: string;
-      distance: number;
-    }
+    fromResult: PathResult,
+    toResult: PathResult
   ): {
     tempAdjacencies: Map<string, string[]>;
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>;
@@ -648,21 +629,22 @@ export class Pathfinder {
       toResult
     );
 
-    // Determine edge types
-    const fromIsLegacyEdge =
-      fromResult.edgeId === constants.LEGACY_NAVMESH_EDGE_ID;
-    const toIsLegacyEdge = toResult.edgeId === constants.LEGACY_NAVMESH_EDGE_ID;
-    const fromIsAreaGroupEdge =
-      fromResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
-    const toIsAreaGroupEdge =
-      toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
+    // Determine edge types using union type discrimination
+    const fromIsLegacyEdge = fromResult.type === "legacy";
+    const toIsLegacyEdge = toResult.type === "legacy";
+    const fromIsAreaGroupEdge = fromResult.type === "areaGroup";
+    const toIsAreaGroupEdge = toResult.type === "areaGroup";
+
+    // Extract edge information for non-legacy, non-areaGroup results
+    const fromEdgeId = fromResult.type === "edge" ? fromResult.edgeId : "";
+    const toEdgeId = toResult.type === "edge" ? toResult.edgeId : "";
 
     const fromEdgeAreaGroups = fromIsLegacyEdge
       ? []
-      : this.getAreaGroupsContainingEdge(fromResult.edgeId);
+      : this.getAreaGroupsContainingEdge(fromEdgeId);
     const toEdgeAreaGroups = toIsLegacyEdge
       ? []
-      : this.getAreaGroupsContainingEdge(toResult.edgeId);
+      : this.getAreaGroupsContainingEdge(toEdgeId);
 
     // Add connections from existing nodes to intermediate points
     const fromIsAreaEdge = fromIsLegacyEdge
@@ -677,29 +659,31 @@ export class Pathfinder {
     if (
       fromIsAreaGroupEdge &&
       toIsAreaGroupEdge &&
-      fromResult.fromPointId === toResult.fromPointId
+      fromResult.type === "areaGroup" &&
+      toResult.type === "areaGroup" &&
+      fromResult.areaGroupId === toResult.areaGroupId
     ) {
-      const areaGroupId = fromResult.fromPointId;
+      const areaGroupId = fromResult.areaGroupId;
       directNavMeshQuery =
         this._areaGroupNavMeshQueries.get(areaGroupId) || null;
     }
     // Mixed case: from off-mesh, to in areaGroup, but same areaGroup
     else if (
-      fromResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
-      toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID &&
-      fromEdgeAreaGroups.includes(toResult.fromPointId)
+      fromResult.type === "edge" &&
+      toResult.type === "areaGroup" &&
+      fromEdgeAreaGroups.includes(toResult.areaGroupId)
     ) {
-      const areaGroupId = toResult.fromPointId;
+      const areaGroupId = toResult.areaGroupId;
       directNavMeshQuery =
         this._areaGroupNavMeshQueries.get(areaGroupId) || null;
     }
     // Mixed case: to off-mesh, from in areaGroup, but same areaGroup
     else if (
-      toResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
-      fromResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID &&
-      toEdgeAreaGroups.includes(fromResult.fromPointId)
+      toResult.type === "edge" &&
+      fromResult.type === "areaGroup" &&
+      toEdgeAreaGroups.includes(fromResult.areaGroupId)
     ) {
-      const areaGroupId = fromResult.fromPointId;
+      const areaGroupId = fromResult.areaGroupId;
       directNavMeshQuery =
         this._areaGroupNavMeshQueries.get(areaGroupId) || null;
     }
@@ -914,10 +898,6 @@ export class Pathfinder {
 
         const fromPoint = this._map.points[fromId];
         const toPoint = this._map.points[toId];
-
-        // Use NavMesh to find path between points
-        const fromV3 = new THREE.Vector3().copy(fromPoint);
-        const toV3 = new THREE.Vector3().copy(toPoint);
 
         this.computeNavMeshPathAndConnect(
           lnmQuery,

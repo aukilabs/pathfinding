@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import { NavMeshQuery } from "recast-navigation";
 import * as constants from "./Constants";
+import {
+  PathResult,
+  EdgePathResult,
+  LegacyPathResult,
+  AreaGroupPathResult,
+} from "./NavgraphTypes";
 
 export function chooseClosestResult(
   edgeResult: {
@@ -18,38 +24,42 @@ export function chooseClosestResult(
     areaGroupId: string;
     position: THREE.Vector3Like;
   } | null
-): {
-  position: THREE.Vector3Like;
-  distance: number;
-  edgeId: string;
-  fromPointId: string;
-  toPointId: string;
-} | null {
-  if (inAreaGroupResult)
+): PathResult | null {
+  if (inAreaGroupResult) {
     return {
+      type: "areaGroup",
       position: inAreaGroupResult.position,
+      areaGroupId: inAreaGroupResult.areaGroupId,
       distance: 0,
-      edgeId: constants.WITHIN_AREA_GROUP_EDGE_ID,
-      fromPointId: inAreaGroupResult.areaGroupId,
-      toPointId: inAreaGroupResult.areaGroupId,
-    };
+    } as AreaGroupPathResult;
+  }
+
   if (!edgeResult && !legacyResult) return null;
-  if (!edgeResult) return convertLegacyToEdgeResult(legacyResult);
-  if (!legacyResult) return edgeResult;
+  if (!edgeResult) return convertLegacyToPathResult(legacyResult);
+  if (!legacyResult) return convertEdgeToPathResult(edgeResult);
 
   // Choose the one with smaller distance
   return legacyResult.distance < edgeResult.distance
-    ? convertLegacyToEdgeResult(legacyResult)
-    : edgeResult;
+    ? convertLegacyToPathResult(legacyResult)
+    : convertEdgeToPathResult(edgeResult);
 }
 
-function convertLegacyToEdgeResult(legacyResult: any): any {
+function convertLegacyToPathResult(legacyResult: any): LegacyPathResult {
   return {
+    type: "legacy",
     position: legacyResult.position,
-    edgeId: constants.LEGACY_NAVMESH_EDGE_ID,
-    fromPointId: constants.LEGACY_PORTAL_FROM_FALLBACK,
-    toPointId: constants.LEGACY_PORTAL_TO_FALLBACK,
     distance: legacyResult.distance,
+  };
+}
+
+function convertEdgeToPathResult(edgeResult: any): EdgePathResult {
+  return {
+    type: "edge",
+    position: edgeResult.position,
+    edgeId: edgeResult.edgeId,
+    fromPointId: edgeResult.fromPointId,
+    toPointId: edgeResult.toPointId,
+    distance: edgeResult.distance,
   };
 }
 
