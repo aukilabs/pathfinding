@@ -234,10 +234,21 @@ export function addEdgeWeight(
   edgeWeights: Map<string, EdgeWeightInfo[]>,
   fromId: string,
   toId: string,
+  bidirectional: boolean,
   weightInfo: EdgeWeightInfo
 ): void {
   const key = createEdgeWeightKey(fromId, toId);
   const existing = edgeWeights.get(key) || [];
   existing.push(weightInfo);
   edgeWeights.set(key, existing);
+  if (bidirectional) {
+    const reversedKey = createEdgeWeightKey(toId, fromId);
+    const reversedExisting = edgeWeights.get(reversedKey) || [];
+    reversedExisting.push({
+      weight: weightInfo.weight,
+      type: weightInfo.type,
+      path: weightInfo.path.toReversed(),
+    });
+    edgeWeights.set(reversedKey, reversedExisting);
+  }
 }

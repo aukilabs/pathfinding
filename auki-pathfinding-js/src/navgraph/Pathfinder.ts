@@ -295,20 +295,15 @@ export class Pathfinder {
         if (!edge.dir) {
           // Two-way edge - add bidirectional connections
           addAdjacency(this._adjacencies, edge.from, edge.to, true);
-          addEdgeWeight(this._edgeWeights, edge.from, edge.to, {
+          addEdgeWeight(this._edgeWeights, edge.from, edge.to, true, {
             weight,
             type: "direct",
             path: [fromPoint, toPoint],
           });
-          addEdgeWeight(this._edgeWeights, edge.to, edge.from, {
-            weight,
-            type: "direct",
-            path: [toPoint, fromPoint],
-          });
         } else if (edge.dir === 1) {
           // One-way edge - only add from -> to connection
           addAdjacency(this._adjacencies, edge.from, edge.to, false);
-          addEdgeWeight(this._edgeWeights, edge.from, edge.to, {
+          addEdgeWeight(this._edgeWeights, edge.from, edge.to, false, {
             weight,
             type: "direct",
             path: [fromPoint, toPoint],
@@ -316,7 +311,7 @@ export class Pathfinder {
         } else if (edge.dir === -1) {
           // One-way-reverse edge - only add to -> from connection
           addAdjacency(this._adjacencies, edge.to, edge.from, false);
-          addEdgeWeight(this._edgeWeights, edge.to, edge.from, {
+          addEdgeWeight(this._edgeWeights, edge.to, edge.from, false, {
             weight,
             type: "direct",
             path: [toPoint, fromPoint],
@@ -422,9 +417,6 @@ export class Pathfinder {
     const tempGraphResults = this.createTempGraph(fromResult, toResult);
     const { tempAdjacencies, tempEdgeWeights } = tempGraphResults;
 
-    console.log("tempAdjacencies", tempAdjacencies);
-    console.log("tempEdgeWeights", tempEdgeWeights);
-
     let graphPath = this.dijkstraWithTempGraph(
       tempAdjacencies,
       tempEdgeWeights,
@@ -529,13 +521,13 @@ export class Pathfinder {
       if (path.success && path.path) {
         const distance = geometry.calculatePathLength(path.path);
         addAdjacency(adjacencyList, fromId, toId, true);
-        addEdgeWeight(edgeWeights, fromId, toId, {
+        addEdgeWeight(edgeWeights, fromId, toId, true, {
           weight: distance,
           type: "legacy",
           path: path.path,
         });
         //add reverse connection
-        addEdgeWeight(edgeWeights, toId, fromId, {
+        addEdgeWeight(edgeWeights, toId, fromId, true, {
           weight: distance,
           type: "legacy",
           path: path.path.toReversed(),
@@ -549,146 +541,6 @@ export class Pathfinder {
       );
     }
     return false;
-  }
-
-  /**
-   * Helper function to connect intermediate point to edge points based on edge direction
-   */
-  private connectIntermediateToEdgePoints(
-    tempAdjacencies: Map<string, string[]>,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
-    fromPosition: THREE.Vector3Like,
-    fromResult: { fromPointId: string; toPointId: string },
-    edgeDir?: number,
-    isAreaEdge?: boolean
-  ): void {
-    if (!edgeDir || isAreaEdge) {
-      // Two-way edge - connect to both points
-      this.connectToPoint(
-        tempAdjacencies,
-        tempEdgeWeights,
-        fromPosition,
-        fromResult.fromPointId
-      );
-      this.connectToPoint(
-        tempAdjacencies,
-        tempEdgeWeights,
-        fromPosition,
-        fromResult.toPointId
-      );
-    } else if (edgeDir === 1) {
-      // One-way edge - only connect to fromPoint
-      this.connectToPoint(
-        tempAdjacencies,
-        tempEdgeWeights,
-        fromPosition,
-        fromResult.fromPointId
-      );
-    } else if (edgeDir === -1) {
-      // One-way-reverse edge - only connect to toPoint
-      this.connectToPoint(
-        tempAdjacencies,
-        tempEdgeWeights,
-        fromPosition,
-        fromResult.toPointId
-      );
-    }
-  }
-
-  /**
-   * Helper function to connect intermediate point to a specific edge point
-   */
-  private connectToPoint(
-    tempAdjacencies: Map<string, string[]>,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
-    fromPosition: THREE.Vector3Like,
-    pointId: string
-  ): void {
-    const point = this.getMapPointInternal(pointId);
-    if (point) {
-      const distance = new THREE.Vector3().copy(point).distanceTo(fromPosition);
-      addAdjacency(tempAdjacencies, pointId, constants.FROM_INTERMEDIATE, true);
-      addEdgeWeight(tempEdgeWeights, constants.FROM_INTERMEDIATE, pointId, {
-        weight: distance,
-        type: "legacy",
-        path: [fromPosition, point],
-      });
-      addEdgeWeight(tempEdgeWeights, pointId, constants.FROM_INTERMEDIATE, {
-        weight: distance,
-        type: "legacy",
-        path: [point, fromPosition],
-      });
-    }
-  }
-
-  /**
-   * Helper function to connect intermediate point to edge points for "to" side
-   */
-  private connectIntermediateToEdgePointsTo(
-    tempAdjacencies: Map<string, string[]>,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
-    toPosition: THREE.Vector3Like,
-    toResult: { fromPointId: string; toPointId: string },
-    edgeDir?: number,
-    isAreaEdge?: boolean
-  ): void {
-    if (!edgeDir || isAreaEdge) {
-      // Two-way edge - connect to both points
-      this.connectToPointTo(
-        tempAdjacencies,
-        tempEdgeWeights,
-        toPosition,
-        toResult.fromPointId
-      );
-      this.connectToPointTo(
-        tempAdjacencies,
-        tempEdgeWeights,
-        toPosition,
-        toResult.toPointId
-      );
-    } else if (edgeDir === 1) {
-      // One-way edge - only connect to fromPoint
-      this.connectToPointTo(
-        tempAdjacencies,
-        tempEdgeWeights,
-        toPosition,
-        toResult.fromPointId
-      );
-    } else if (edgeDir === -1) {
-      // One-way-reverse edge - only connect to toPoint
-      this.connectToPointTo(
-        tempAdjacencies,
-        tempEdgeWeights,
-        toPosition,
-        toResult.toPointId
-      );
-    }
-  }
-
-  /**
-   * Helper function to connect intermediate point to a specific edge point for "to" side
-   */
-  private connectToPointTo(
-    tempAdjacencies: Map<string, string[]>,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
-    toPosition: THREE.Vector3Like,
-    pointId: string
-  ): void {
-    const point = this.getMapPointInternal(pointId);
-    if (point) {
-      const distance = new THREE.Vector3().copy(point).distanceTo(toPosition);
-      addAdjacency(tempAdjacencies, pointId, constants.TO_INTERMEDIATE, true);
-      addEdgeWeight(tempEdgeWeights, pointId, constants.TO_INTERMEDIATE, {
-        weight: distance,
-        type: "legacy",
-        path: [point, toPosition],
-      });
-      addEdgeWeight(tempEdgeWeights, constants.TO_INTERMEDIATE, pointId, {
-        weight: distance,
-        type: "legacy",
-        path: [toPosition, point],
-      });
-    }
   }
 
   private addIntermediateNodeToTempGraph(
@@ -725,21 +577,38 @@ export class Pathfinder {
     } else {
       // Respect edge direction for FROM_INTERMEDIATE connections
       const fromEdge = this.getMapEdge(node.edgeId);
-      const fromConnections = [];
 
       if (fromEdge?.dir === undefined || fromEdge?.dir === 0) {
         // Bidirectional or undefined - add both directions
-        fromConnections.push(node.toPointId);
-        fromConnections.push(node.fromPointId);
+        addAdjacency(tempAdjacencies, nodeId, node.toPointId, true);
+        addAdjacency(tempAdjacencies, nodeId, node.fromPointId, true);
+        addEdgeWeight(tempEdgeWeights, nodeId, node.toPointId, true, {
+          weight: node.distance,
+          type: "legacy",
+          path: [node.position, this.getMapPointInternal(node.toPointId)!],
+        });
+        addEdgeWeight(tempEdgeWeights, nodeId, node.fromPointId, true, {
+          weight: node.distance,
+          type: "legacy",
+          path: [node.position, this.getMapPointInternal(node.fromPointId)!],
+        });
       } else if (fromEdge?.dir === 1) {
         // Forward only - only add toPointId
-        fromConnections.push(node.toPointId);
+        addAdjacency(tempAdjacencies, nodeId, node.toPointId, true);
+        addEdgeWeight(tempEdgeWeights, nodeId, node.toPointId, true, {
+          weight: node.distance,
+          type: "legacy",
+          path: [node.position, this.getMapPointInternal(node.toPointId)!],
+        });
       } else if (fromEdge?.dir === -1) {
         // Backward only - only add fromPointId
-        fromConnections.push(node.fromPointId);
+        addAdjacency(tempAdjacencies, nodeId, node.fromPointId, true);
+        addEdgeWeight(tempEdgeWeights, nodeId, node.fromPointId, true, {
+          weight: node.distance,
+          type: "legacy",
+          path: [node.position, this.getMapPointInternal(node.fromPointId)!],
+        });
       }
-
-      tempAdjacencies.set(nodeId, fromConnections);
     }
 
     // Add connections from existing nodes to intermediate points
@@ -769,15 +638,10 @@ export class Pathfinder {
               const path = legacyNavMeshQuery.computePath(fromV3, pointV3);
               if (path.success && path.path) {
                 const pathLength = geometry.calculatePathLength(path.path);
-                addEdgeWeight(tempEdgeWeights, nodeId, pointId, {
+                addEdgeWeight(tempEdgeWeights, nodeId, pointId, true, {
                   weight: pathLength,
                   type: "legacy",
                   path: path.path,
-                });
-                addEdgeWeight(tempEdgeWeights, pointId, nodeId, {
-                  weight: pathLength,
-                  type: "legacy",
-                  path: path.path.toReversed(),
                 });
                 connectedPoints.push(pointId);
               }
@@ -954,31 +818,6 @@ export class Pathfinder {
     const toEdgeAreaGroups = toIsLegacyEdge
       ? []
       : this.getAreaGroupsContainingEdge(toResult.edgeId);
-
-    if (!fromIsLegacyEdge && !fromIsAreaEdge) {
-      this.connectIntermediateToEdgePoints(
-        tempAdjacencies,
-        tempEdgeWeights,
-        fromResult.position,
-        fromResult,
-        fromEdge?.dir,
-        fromIsAreaEdge
-      );
-    }
-
-    if (!toIsLegacyEdge && !toIsAreaEdge) {
-      // Regular edge handling (only for non-legacy edges)
-      //const toPosition = new THREE.Vector3().copy(toResult.position);
-
-      this.connectIntermediateToEdgePointsTo(
-        tempAdjacencies,
-        tempEdgeWeights,
-        toResult.position,
-        toResult,
-        toEdge?.dir,
-        toIsAreaEdge
-      );
-    }
 
     if (fromIsLegacyEdge && toIsLegacyEdge) {
       // Both 'from' and 'to' are on legacy NavMesh
@@ -1298,15 +1137,10 @@ export class Pathfinder {
               const distance = geometry.calculatePathLength(path.path);
 
               // Store both directions
-              addEdgeWeight(this._edgeWeights, fromPointId, toPointId, {
+              addEdgeWeight(this._edgeWeights, fromPointId, toPointId, true, {
                 weight: distance,
                 type: "areaGroup",
                 path: path.path,
-              });
-              addEdgeWeight(this._edgeWeights, toPointId, fromPointId, {
-                weight: distance,
-                type: "areaGroup",
-                path: path.path.toReversed(),
               });
             }
           }
