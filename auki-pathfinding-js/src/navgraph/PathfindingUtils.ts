@@ -16,8 +16,25 @@ export function chooseClosestResult(
     position: THREE.Vector3Like;
     distance: number;
   } | null,
-  originalPosition: THREE.Vector3Like
-): any {
+  inAreaGroupResult: {
+    areaGroupId: string;
+    position: THREE.Vector3Like;
+  } | null
+): {
+  position: THREE.Vector3Like;
+  distance: number;
+  edgeId: string;
+  fromPointId: string;
+  toPointId: string;
+} | null {
+  if (inAreaGroupResult)
+    return {
+      position: inAreaGroupResult.position,
+      distance: 0,
+      edgeId: constants.WITHIN_AREA_GROUP_EDGE_ID,
+      fromPointId: inAreaGroupResult.areaGroupId,
+      toPointId: inAreaGroupResult.areaGroupId,
+    };
   if (!edgeResult && !legacyResult) return null;
   if (!edgeResult) return convertLegacyToEdgeResult(legacyResult);
   if (!legacyResult) return edgeResult;

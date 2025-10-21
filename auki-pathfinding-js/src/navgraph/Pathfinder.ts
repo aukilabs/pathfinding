@@ -417,17 +417,51 @@ export class Pathfinder {
       to
     );
 
+    const fromAreaResult = recastUtils.getNavmeshUnderPoint(
+      from,
+      this._areaGroupNavMeshQueries
+    );
+    const toAreaResult = recastUtils.getNavmeshUnderPoint(
+      to,
+      this._areaGroupNavMeshQueries
+    );
+
+    console.log("AreaGroup detection:", {
+      fromAreaResult,
+      toAreaResult,
+      fromPosition: from,
+      toPosition: to,
+    });
+
     // Use unified pathfinding logic for all cases
     const fromResult = pathfinding.chooseClosestResult(
       fromEdgeResult,
       fromLegacyResult,
-      from
+      fromAreaResult
+        ? {
+            areaGroupId: fromAreaResult,
+            position: from,
+          }
+        : null
     );
     const toResult = pathfinding.chooseClosestResult(
       toEdgeResult,
       toLegacyResult,
-      to
+      toAreaResult
+        ? {
+            areaGroupId: toAreaResult,
+            position: to,
+          }
+        : null
     );
+
+    console.log("chooseClosestResult results:", {
+      fromResult: fromResult?.edgeId,
+      toResult: toResult?.edgeId,
+      fromIsAreaGroup:
+        fromResult?.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID,
+      toIsAreaGroup: toResult?.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID,
+    });
 
     if (!fromResult || !toResult) {
       return null;
@@ -448,11 +482,23 @@ export class Pathfinder {
       toResult
     );
 
+    // Debug: Check what connections FROM_INTERMEDIATE has
+    const fromConnections = tempAdjacencyList.get(constants.FROM_INTERMEDIATE);
+    console.log("FROM_INTERMEDIATE connections:", fromConnections);
+
+    // Debug: Check if direct connection exists
+    const hasDirectConnection = fromConnections?.includes(
+      constants.TO_INTERMEDIATE
+    );
+    console.log("Has direct connection:", hasDirectConnection);
+
     let graphPath = this.dijkstraWithTempGraph(
       tempAdjacencyList,
       constants.FROM_INTERMEDIATE,
       constants.TO_INTERMEDIATE
     );
+
+    console.log("Dijkstra chosen path:", graphPath);
 
     if (!graphPath) {
       console.log("No path found between intermediate points");
@@ -834,11 +880,73 @@ export class Pathfinder {
       fromResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
     const toIsLegacyEdge =
       toResult.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
+    const fromIsAreaGroupEdge =
+      fromResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
+    const toIsAreaGroupEdge =
+      toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
 
     // Add intermediate points as temporary nodes
-    // For legacy NavMesh, we'll handle connections differently
     if (fromIsLegacyEdge) {
       tempAdjacencyList.set(constants.FROM_INTERMEDIATE, []);
+    } else if (fromIsAreaGroupEdge) {
+      // Point is within areaGroup - connect to all exit points in that areaGroup
+      tempAdjacencyList.set(constants.FROM_INTERMEDIATE, []);
+      const areaGroupId = fromResult.fromPointId; // This is the areaGroupId from chooseClosestResult
+      if (areaGroupId) {
+        const areaIds = this._areaGroups.get(areaGroupId) || [];
+
+        // Collect all exit points from all areas in this group
+        const allExitPoints = new Set<string>();
+        for (const areaId of areaIds) {
+          const exitPoints = mapUtils.findExitPoints(
+            this._map,
+            areaId,
+            this._legacyNavMeshQuery
+          );
+          exitPoints.forEach((pointId) => allExitPoints.add(pointId));
+        }
+
+        // Connect to all exit points with proper NavMesh path distances
+        const exitPoints = Array.from(allExitPoints);
+        tempAdjacencyList.set(constants.FROM_INTERMEDIATE, exitPoints);
+
+        // Compute NavMesh path distances to each exit point
+        const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
+        if (navMeshQuery) {
+          exitPoints.forEach((pointId) => {
+            const exitPosition = this.getMapPointInternal(pointId);
+            if (exitPosition) {
+              try {
+                const fromV3 = new THREE.Vector3().copy(fromResult.position);
+                const exitV3 = new THREE.Vector3().copy(exitPosition);
+
+                const path = navMeshQuery.computePath(fromV3, exitV3);
+                if (path.success && path.path) {
+                  const distance = geometry.calculatePathLength(path.path);
+                  this.setEdgeWeightAndPath(
+                    constants.FROM_INTERMEDIATE,
+                    pointId,
+                    distance,
+                    path.path,
+                    tempPaths,
+                    constants.createDirectPathKey()
+                  );
+                }
+              } catch (error) {
+                console.error(
+                  `Failed to compute path to exit point ${pointId}:`,
+                  error
+                );
+              }
+            }
+          });
+        }
+
+        // Add reverse connections
+        exitPoints.forEach((pointId) => {
+          tempAdjacencyList.get(pointId)!.push(constants.FROM_INTERMEDIATE);
+        });
+      }
     } else {
       // Respect edge direction for FROM_INTERMEDIATE connections
       const fromEdge = this.getMapEdge(fromResult.edgeId);
@@ -861,6 +969,65 @@ export class Pathfinder {
 
     if (toIsLegacyEdge) {
       tempAdjacencyList.set(constants.TO_INTERMEDIATE, []);
+    } else if (toIsAreaGroupEdge) {
+      // Point is within areaGroup - connect to all exit points in that areaGroup
+      tempAdjacencyList.set(constants.TO_INTERMEDIATE, []);
+      const areaGroupId = toResult.fromPointId; // This is the areaGroupId from chooseClosestResult
+      if (areaGroupId) {
+        const areaIds = this._areaGroups.get(areaGroupId) || [];
+
+        // Collect all exit points from all areas in this group
+        const allExitPoints = new Set<string>();
+        for (const areaId of areaIds) {
+          const exitPoints = mapUtils.findExitPoints(
+            this._map,
+            areaId,
+            this._legacyNavMeshQuery
+          );
+          exitPoints.forEach((pointId) => allExitPoints.add(pointId));
+        }
+
+        // Connect to all exit points with proper NavMesh path distances
+        const exitPoints = Array.from(allExitPoints);
+        tempAdjacencyList.set(constants.TO_INTERMEDIATE, exitPoints);
+
+        // Compute NavMesh path distances to each exit point
+        const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
+        if (navMeshQuery) {
+          exitPoints.forEach((pointId) => {
+            const exitPosition = this.getMapPointInternal(pointId);
+            if (exitPosition) {
+              try {
+                const toV3 = new THREE.Vector3().copy(toResult.position);
+                const exitV3 = new THREE.Vector3().copy(exitPosition);
+
+                const path = navMeshQuery.computePath(exitV3, toV3);
+                if (path.success && path.path) {
+                  const distance = geometry.calculatePathLength(path.path);
+                  this.setEdgeWeightAndPath(
+                    pointId,
+                    constants.TO_INTERMEDIATE,
+                    distance,
+                    path.path,
+                    tempPaths,
+                    constants.createDirectPathKey()
+                  );
+                }
+              } catch (error) {
+                console.error(
+                  `Failed to compute path from exit point ${pointId}:`,
+                  error
+                );
+              }
+            }
+          });
+        }
+
+        // Add reverse connections
+        exitPoints.forEach((pointId) => {
+          tempAdjacencyList.get(pointId)!.push(constants.TO_INTERMEDIATE);
+        });
+      }
     } else {
       // Respect edge direction for TO_INTERMEDIATE connections
       const toEdge = this.getMapEdge(toResult.edgeId);
@@ -880,8 +1047,63 @@ export class Pathfinder {
       tempAdjacencyList.set(constants.TO_INTERMEDIATE, toConnections);
     }
 
+    // Special case: if both points are in the same areaGroup, add direct connection
+    if (
+      fromIsAreaGroupEdge &&
+      toIsAreaGroupEdge &&
+      fromResult.fromPointId === toResult.fromPointId
+    ) {
+      console.log("Same areaGroup detected:", {
+        areaGroupId: fromResult.fromPointId,
+        fromPosition: fromResult.position,
+        toPosition: toResult.position,
+      });
+
+      const areaGroupId = fromResult.fromPointId;
+      const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
+
+      if (navMeshQuery) {
+        try {
+          const fromV3 = new THREE.Vector3().copy(fromResult.position);
+          const toV3 = new THREE.Vector3().copy(toResult.position);
+
+          const path = navMeshQuery.computePath(fromV3, toV3);
+          console.log("Direct areaGroup path result:", {
+            success: path.success,
+            pathLength: path.path?.length,
+            hasPath: !!path.path,
+          });
+
+          if (path.success && path.path) {
+            const directDistance = geometry.calculatePathLength(path.path);
+            console.log(
+              "Adding direct connection with distance:",
+              directDistance
+            );
+
+            this.addBidirectionalConnection(
+              tempAdjacencyList,
+              constants.FROM_INTERMEDIATE,
+              constants.TO_INTERMEDIATE
+            );
+            this.setEdgeWeightAndPath(
+              constants.FROM_INTERMEDIATE,
+              constants.TO_INTERMEDIATE,
+              directDistance,
+              path.path,
+              tempPaths,
+              constants.createDirectPathKey()
+            );
+          }
+        } catch (error) {
+          console.error("Failed to compute direct areaGroup path:", error);
+        }
+      } else {
+        console.log("No NavMesh query found for areaGroup:", areaGroupId);
+      }
+    }
     // Special case: if both points are on legacy NavMesh, add direct connection
-    if (fromIsLegacyEdge && toIsLegacyEdge) {
+    else if (fromIsLegacyEdge && toIsLegacyEdge) {
       const directPath = pathfinding.tryDirectLegacyNavMeshPath(
         this._legacyNavMeshQuery,
         fromResult.position,
@@ -1065,7 +1287,7 @@ export class Pathfinder {
     }
 
     // Special case: handle mixed legacy/graph pathfinding
-    if (fromIsLegacyEdge && !toIsLegacyEdge) {
+    if (fromIsLegacyEdge && !toIsLegacyEdge && !toIsAreaGroupEdge) {
       // 'from' is on legacy NavMesh, 'to' is on regular graph
       // Connect the 'to' intermediate point to its actual edge points
       if (toResult.fromPointId && toResult.toPointId) {
@@ -1076,7 +1298,7 @@ export class Pathfinder {
           .get(toResult.toPointId)!
           .push(constants.TO_INTERMEDIATE);
       }
-    } else if (!fromIsLegacyEdge && toIsLegacyEdge) {
+    } else if (!fromIsLegacyEdge && toIsLegacyEdge && !fromIsAreaGroupEdge) {
       // 'from' is on regular graph, 'to' is on legacy NavMesh
       // Connect the 'from' intermediate point to its actual edge points
       if (fromResult.fromPointId && fromResult.toPointId) {

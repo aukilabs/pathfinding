@@ -1,6 +1,5 @@
 import * as THREE from "three";
-import { NavMesh, NavMeshQuery } from "recast-navigation";
-import * as geometry from "./GeometryUtils";
+import { NavMeshQuery } from "recast-navigation";
 import * as constants from "./Constants";
 
 export function getNavmeshUnderPoint(
@@ -10,10 +9,12 @@ export function getNavmeshUnderPoint(
   // Use NavMesh query to find nearest point on surface
   const pointV3 = new THREE.Vector3(point.x, point.y, point.z);
 
+  console.log("Getting navmesh under point:", {
+    point: point,
+    navMeshQueries: navMeshQueries,
+  });
   try {
-    for (const [areaGroupId, areaGroupQuery] of Object.entries(
-      navMeshQueries
-    )) {
+    for (const [areaGroupId, areaGroupQuery] of navMeshQueries) {
       const result = (areaGroupQuery as NavMeshQuery).findClosestPoint(
         pointV3,
         {
@@ -24,6 +25,17 @@ export function getNavmeshUnderPoint(
           ),
         }
       );
+
+      console.log(`Checking areaGroup ${areaGroupId}:`, {
+        success: result.success,
+        hasPoint: !!result.point,
+        isPointOverPoly: result.isPointOverPoly,
+        distance:
+          result.success && result.point
+            ? pointV3.distanceTo(new THREE.Vector3().copy(result.point))
+            : "N/A",
+      });
+
       if (result.success && result.point && result.isPointOverPoly) {
         return areaGroupId;
       }
