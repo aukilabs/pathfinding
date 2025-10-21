@@ -83,9 +83,6 @@ export const LEGACY_NAVMESH_SURFACE_THRESHOLD = 0.5;
 /** Tolerance factor for direct NavMesh path vs portal path comparison */
 export const DIRECT_PATH_TOLERANCE_FACTOR = 1.1;
 
-/** Default weight for intermediate point connections */
-export const INTERMEDIATE_POINT_WEIGHT = 0.1;
-
 // ============================================================================
 // NAVMESH BUILDING CONFIGURATION
 // ============================================================================

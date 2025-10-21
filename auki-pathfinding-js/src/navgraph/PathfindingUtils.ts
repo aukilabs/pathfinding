@@ -1,6 +1,4 @@
 import * as THREE from "three";
-import * as legacyQuery from "./RecastUtils";
-import * as geometry from "./GeometryUtils";
 import { NavMeshQuery } from "recast-navigation";
 import * as constants from "./Constants";
 

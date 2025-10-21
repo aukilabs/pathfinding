@@ -1,9 +1,26 @@
 import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
-import { Area, NavMap, Points, EdgeWeightInfo } from "./NavgraphTypes";
+import { NavMap, EdgeWeightInfo } from "./NavgraphTypes";
 import { NavMeshQuery } from "recast-navigation";
 import * as recastUtils from "./RecastUtils";
+
+export function addAdjacency(
+  adjacencyList: Map<string, string[]>,
+  nodeId: string,
+  neighborId: string,
+  bidirectional: boolean
+): void {
+  const neighbors = adjacencyList.get(nodeId) || [];
+  if (!neighbors.includes(neighborId)) {
+    neighbors.push(neighborId);
+    adjacencyList.set(nodeId, neighbors);
+  }
+  if (bidirectional) {
+    //use recursion to add the neighbor to the adjacency list
+    addAdjacency(adjacencyList, neighborId, nodeId, false);
+  }
+}
 
 export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
   if (!map) return [];
@@ -13,27 +30,31 @@ export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
     .map(([areaId, _]) => areaId);
 }
 
-export function findExitPoints(
+export function findExitPointsForGroup(
   map: NavMap,
-  areaId: string,
+  areaGroupId: string,
+  areaIds: string[],
   legacyNavMeshQuery?: NavMeshQuery | null
 ): string[] {
   if (!map) return [];
 
-  const area = map.areas[areaId];
-  const exitPoints: string[] = [];
+  const allPoints = new Set<string>();
 
-  const allpoints = new Set<string>();
+  // Collect all exit points from all areas in this group
+  for (const areaId of areaIds) {
+    const area = map.areas[areaId];
+    area.edges.forEach((edgeId) => {
+      const edge = map.edges[edgeId];
+      if (edge) {
+        allPoints.add(edge.from);
+        allPoints.add(edge.to);
+      }
+    });
+  }
 
-  area.edges.forEach((edgeId) => {
-    const edge = map.edges[edgeId];
-    if (edge) {
-      allpoints.add(edge.from);
-      allpoints.add(edge.to);
-    }
-  });
+  const exitPoints = new Set<string>();
 
-  allpoints.forEach((pointId) => {
+  allPoints.forEach((pointId) => {
     // Check if this point connects to edges outside this area
     const connectingEdges = Object.entries(map.edges).filter(
       ([_, edge]) => edge.from === pointId || edge.to === pointId
@@ -42,7 +63,11 @@ export function findExitPoints(
     // If point connects to edges that don't belong to this area, it's an exit
     const hasExternalConnections = connectingEdges.some(([edgeId, _]) => {
       const edgeAreas = getAreasContainingEdge(map, edgeId);
-      return !edgeAreas.includes(areaId);
+      // Return true if this edge has no areas OR has areas outside our group
+      return (
+        edgeAreas.length === 0 ||
+        edgeAreas.some((areaId) => !areaIds.includes(areaId))
+      );
     });
 
     // Also check if point is on legacy NavMesh using the query
@@ -58,83 +83,11 @@ export function findExitPoints(
     }
 
     if (hasExternalConnections || isOnLegacyNavMesh) {
-      exitPoints.push(pointId);
+      exitPoints.add(pointId);
     }
   });
 
-  return exitPoints;
-}
-
-export function isPointOnAreaEdge(
-  map: NavMap,
-  point: THREE.Vector3Like,
-  areaId: string
-): boolean {
-  if (!map) return false;
-
-  const area = map.areas[areaId];
-  if (!area) return false;
-
-  for (let i = 0; i < area.edges.length; i++) {
-    const edge = map.edges[area.edges[i]];
-    const fromPointId = edge.from;
-    const toPointId = edge.to;
-    const fromPoint = map.points[fromPointId];
-    const toPoint = map.points[toPointId];
-
-    if (
-      fromPoint &&
-      toPoint &&
-      geometry.isPointOnEdge(point, fromPoint, toPoint)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-export function isPointInsideArea(
-  map: NavMap,
-  point: THREE.Vector3Like,
-  areaId: string
-): boolean {
-  if (!map) return false;
-
-  const area = map.areas[areaId];
-  if (!area) return false;
-
-  // Get all vertices of the area
-  const points = new Set<string>();
-  area.edges.forEach((edgeId) => {
-    const edge = map.edges[edgeId];
-    if (edge) {
-      points.add(edge.from);
-      points.add(edge.to);
-    }
-  });
-
-  const vertices: THREE.Vector3Like[] = Array.from(points).map(
-    (pointId) => map.points[pointId]
-  );
-  // Use ray casting to determine if point is inside polygon
-  return geometry.isPointInPolygon(point, vertices);
-}
-
-export function findAreaContainingPoint(
-  map: NavMap,
-  point: THREE.Vector3Like
-): string | null {
-  if (!map) return null;
-
-  // Check each area to see if the point is inside it
-  for (const [areaId, area] of Object.entries(map.areas)) {
-    if (isPointInsideArea(map, point, areaId)) {
-      return areaId;
-    }
-  }
-
-  return null;
+  return Array.from(exitPoints);
 }
 
 export function getEdgeWeight(
@@ -150,24 +103,6 @@ export function getEdgeWeight(
       (min, conn) => (conn.weight < min ? conn.weight : min),
       Infinity
     );
-  }
-
-  // Handle intermediate points - calculate actual distance to their edge endpoints
-  if (
-    from === constants.FROM_INTERMEDIATE ||
-    to === constants.FROM_INTERMEDIATE
-  ) {
-    const other = from === constants.FROM_INTERMEDIATE ? to : from;
-    // Calculate distance from intermediate point to the other node
-    // For now, use a small weight since we don't have access to the intermediate position here
-    return constants.INTERMEDIATE_POINT_WEIGHT;
-  }
-
-  if (from === constants.TO_INTERMEDIATE || to === constants.TO_INTERMEDIATE) {
-    const other = from === constants.TO_INTERMEDIATE ? to : from;
-    // Calculate distance from intermediate point to the other node
-    // For now, use a small weight since we don't have access to the intermediate position here
-    return constants.INTERMEDIATE_POINT_WEIGHT;
   }
 
   // Regular edge weight - check if connection exists
@@ -241,4 +176,55 @@ export function buildPolygonFromArea(
   }
 
   return polygon.length > 2 ? polygon : null;
+}
+
+export function getNearestPositionOnEdge(
+  map: NavMap,
+  position: THREE.Vector3Like
+): {
+  position: THREE.Vector3Like;
+  edgeId: string;
+  fromPointId: string;
+  toPointId: string;
+  distance: number;
+} | null {
+  let nearestPosition: THREE.Vector3Like | null = null;
+  let nearestEdgeId: string | null = null;
+  let nearestFromPointId: string | null = null;
+  let nearestToPointId: string | null = null;
+  let minDistance = Infinity;
+
+  // Check all edges
+  Object.entries(map.edges).forEach(([edgeId, edge]) => {
+    const fromPoint = map.points[edge.from];
+    const toPoint = map.points[edge.to];
+
+    if (!fromPoint || !toPoint) return;
+
+    // Find closest point on this edge
+    const closestPoint = geometry.getClosestPointOnLineSegment(
+      position,
+      fromPoint,
+      toPoint
+    );
+    const distance = geometry.calculateDistance(position, closestPoint);
+
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearestPosition = closestPoint;
+      nearestEdgeId = edgeId;
+      nearestFromPointId = edge.from;
+      nearestToPointId = edge.to;
+    }
+  });
+
+  if (!nearestPosition || !nearestEdgeId) return null;
+
+  return {
+    position: nearestPosition,
+    edgeId: nearestEdgeId,
+    fromPointId: nearestFromPointId!,
+    toPointId: nearestToPointId!,
+    distance: minDistance,
+  };
 }

@@ -53,55 +53,6 @@ export function getClosestPointOnLineSegment(
   };
 }
 
-export function isPointInPolygon(
-  point: THREE.Vector3Like,
-  vertices: THREE.Vector3Like[]
-): boolean {
-  if (vertices.length < 3) return false;
-
-  let inside = false;
-  const x = point.x;
-  const z = point.z; // Using XZ plane for 2D polygon test
-
-  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
-    const xi = vertices[i].x;
-    const zi = vertices[i].z;
-    const xj = vertices[j].x;
-    const zj = vertices[j].z;
-
-    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) {
-      inside = !inside;
-    }
-  }
-
-  return inside;
-}
-
-export function isPointOnEdge(
-  point: THREE.Vector3Like,
-  edgeStart: THREE.Vector3Like,
-  edgeEnd: THREE.Vector3Like,
-  tolerance: number = 0.1
-): boolean {
-  // Check if point is on the line segment
-  const closestPoint = getClosestPointOnLineSegment(point, edgeStart, edgeEnd);
-  const distance = calculateDistance(point, closestPoint);
-
-  return distance < tolerance;
-}
-
-export function pointsAreEqual(
-  p1: THREE.Vector3Like,
-  p2: THREE.Vector3Like
-): boolean {
-  const tolerance = constants.POINT_EQUALITY_TOLERANCE;
-  return (
-    Math.abs(p1.x - p2.x) < tolerance &&
-    Math.abs((p1.y ?? 0) - (p2.y ?? 0)) < tolerance &&
-    Math.abs(p1.z - p2.z) < tolerance
-  );
-}
-
 export function expandPolygon(
   polygon: THREE.Vector3Like[],
   expansionDistance: number

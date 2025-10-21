@@ -31,6 +31,7 @@ export const TestNavData: NavMap = {
     p46: { x: 7.5, y: 0, z: 3 },
     p47: { x: 10, y: 0, z: 5 },
     p48: { x: 10, y: 0, z: 7 },
+    p49: { x: 0, y: 0, z: -25 },
   },
   edges: {
     e28: { from: "p20", to: "p34" },
@@ -62,6 +63,7 @@ export const TestNavData: NavMap = {
     e55: { from: "p47", to: "p48" },
     e56: { from: "p47", to: "p45" },
     e57: { from: "p37", to: "p42" },
+    e58: { from: "p37", to: "p49" },
   },
   areas: {
     a3: {
