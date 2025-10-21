@@ -1,12 +1,7 @@
 import { init, NavMesh, NavMeshQuery } from "recast-navigation";
 import { threeToSoloNavMesh } from "@recast-navigation/three";
 import * as THREE from "three";
-import {
-  Area,
-  Edge,
-  NavMap as NavigationGraph,
-  EdgeWeightInfo,
-} from "./NavgraphTypes";
+import { Area, Edge, NavMap, EdgeWeightInfo } from "./NavgraphTypes";
 import * as geometry from "./GeometryUtils";
 import * as graphUtils from "./GraphUtils";
 import * as recastUtils from "./RecastUtils";
@@ -21,7 +16,7 @@ export type NavOptions = {
 };
 
 export class Pathfinder {
-  private _map: NavigationGraph;
+  private _map: NavMap;
   private _config: NavOptions;
   private _adjacencies: Map<string, string[]> = new Map();
   private _edgeWeights: Map<string, EdgeWeightInfo[]> = new Map();
@@ -102,7 +97,7 @@ export class Pathfinder {
     return this._map?.points[pointId] || null;
   }
 
-  async load(map: NavigationGraph, legacyNavmesh: THREE.Mesh[]) {
+  async load(map: NavMap, legacyNavmesh: THREE.Mesh[]) {
     this.isLoaded = false;
     this.cleanUp();
 
@@ -143,24 +138,6 @@ export class Pathfinder {
       }
       this._areaMeshes[areaId] = mesh;
     }
-  }
-
-  private clearTemporaryWeights() {
-    // Remove all temporary weights (FROM_INTERMEDIATE and TO_INTERMEDIATE connections)
-    const keysToRemove: string[] = [];
-    this._edgeWeights.forEach((connections, key) => {
-      // Check if any connection involves intermediate points
-      const hasIntermediate = connections.some(
-        (conn) =>
-          key.includes(constants.FROM_INTERMEDIATE) ||
-          key.includes(constants.TO_INTERMEDIATE)
-      );
-      if (hasIntermediate) {
-        keysToRemove.push(key);
-      }
-    });
-
-    keysToRemove.forEach((key) => this._edgeWeights.delete(key));
   }
 
   private cleanUp() {
@@ -383,9 +360,6 @@ export class Pathfinder {
       return null;
     }
 
-    // Clear temporary weights from previous pathfinding calls
-    this.clearTemporaryWeights();
-
     // Find nearest positions on traditional edges
     const fromEdgeResult = graphUtils.getNearestPositionOnEdge(this._map, from);
     const toEdgeResult = graphUtils.getNearestPositionOnEdge(this._map, to);
@@ -448,6 +422,9 @@ export class Pathfinder {
     const tempGraphResults = this.createTempGraph(fromResult, toResult);
     const { tempAdjacencies, tempEdgeWeights } = tempGraphResults;
 
+    console.log("tempAdjacencies", tempAdjacencies);
+    console.log("tempEdgeWeights", tempEdgeWeights);
+
     let graphPath = this.dijkstraWithTempGraph(
       tempAdjacencies,
       tempEdgeWeights,
@@ -467,6 +444,7 @@ export class Pathfinder {
       toResult,
       from,
       to,
+
       tempEdgeWeights
     );
   }
@@ -629,16 +607,16 @@ export class Pathfinder {
     const point = this.getMapPointInternal(pointId);
     if (point) {
       const distance = new THREE.Vector3().copy(point).distanceTo(fromPosition);
-      addAdjacency(
-        tempAdjacencies,
-        pointId,
-        constants.FROM_INTERMEDIATE,
-        false
-      );
+      addAdjacency(tempAdjacencies, pointId, constants.FROM_INTERMEDIATE, true);
       addEdgeWeight(tempEdgeWeights, constants.FROM_INTERMEDIATE, pointId, {
         weight: distance,
         type: "legacy",
         path: [fromPosition, point],
+      });
+      addEdgeWeight(tempEdgeWeights, pointId, constants.FROM_INTERMEDIATE, {
+        weight: distance,
+        type: "legacy",
+        path: [point, fromPosition],
       });
     }
   }
@@ -699,12 +677,144 @@ export class Pathfinder {
     const point = this.getMapPointInternal(pointId);
     if (point) {
       const distance = new THREE.Vector3().copy(point).distanceTo(toPosition);
-      addAdjacency(tempAdjacencies, pointId, constants.TO_INTERMEDIATE, false);
+      addAdjacency(tempAdjacencies, pointId, constants.TO_INTERMEDIATE, true);
       addEdgeWeight(tempEdgeWeights, pointId, constants.TO_INTERMEDIATE, {
         weight: distance,
         type: "legacy",
         path: [point, toPosition],
       });
+      addEdgeWeight(tempEdgeWeights, constants.TO_INTERMEDIATE, pointId, {
+        weight: distance,
+        type: "legacy",
+        path: [toPosition, point],
+      });
+    }
+  }
+
+  private addIntermediateNodeToTempGraph(
+    tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
+    nodeId: string,
+    node: {
+      position: THREE.Vector3Like;
+      edgeId: string;
+      fromPointId: string;
+      toPointId: string;
+      distance: number;
+    }
+  ): void {
+    const isLegacyEdge =
+      node.edgeId === constants.LEGACY_NAVMESH_SURFACE_EDGE_ID;
+
+    const isAreaGroupEdge = node.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
+
+    if (isLegacyEdge) {
+      tempAdjacencies.set(nodeId, []);
+    } else if (isAreaGroupEdge) {
+      // Point is within areaGroup - connect to all exit points in that areaGroup
+      tempAdjacencies.set(nodeId, []);
+      const areaGroupId = node.fromPointId; // This is the areaGroupId from chooseClosestResult
+
+      this.addPointToAllExitPoints(
+        tempAdjacencies,
+        tempEdgeWeights,
+        nodeId,
+        node.position,
+        areaGroupId
+      );
+    } else {
+      // Respect edge direction for FROM_INTERMEDIATE connections
+      const fromEdge = this.getMapEdge(node.edgeId);
+      const fromConnections = [];
+
+      if (fromEdge?.dir === undefined || fromEdge?.dir === 0) {
+        // Bidirectional or undefined - add both directions
+        fromConnections.push(node.toPointId);
+        fromConnections.push(node.fromPointId);
+      } else if (fromEdge?.dir === 1) {
+        // Forward only - only add toPointId
+        fromConnections.push(node.toPointId);
+      } else if (fromEdge?.dir === -1) {
+        // Backward only - only add fromPointId
+        fromConnections.push(node.fromPointId);
+      }
+
+      tempAdjacencies.set(nodeId, fromConnections);
+    }
+
+    // Add connections from existing nodes to intermediate points
+
+    const fromEdge = isLegacyEdge ? null : this._map!.edges[node.edgeId];
+
+    const fromEdgeAreaGroups = isLegacyEdge
+      ? []
+      : this.getAreaGroupsContainingEdge(node.edgeId);
+
+    const fromIsAreaEdge = isLegacyEdge ? false : fromEdgeAreaGroups.length > 0;
+
+    if (isLegacyEdge) {
+      const legacyNavMeshQuery = this._legacyNavMeshQuery;
+      if (legacyNavMeshQuery) {
+        // Find all graph points that intersect with the legacy NavMesh
+        const connectedPoints: string[] = [];
+
+        // Connect to all graph points that intersect with legacy NavMesh
+        Object.entries(this._map.points).forEach(([pointId, point]) => {
+          if (recastUtils.isPointOnLegacyNavMesh(point, legacyNavMeshQuery)) {
+            // Check if this point is reachable from the from position
+            try {
+              const fromV3 = new THREE.Vector3().copy(node.position);
+              const pointV3 = new THREE.Vector3().copy(point);
+
+              const path = legacyNavMeshQuery.computePath(fromV3, pointV3);
+              if (path.success && path.path) {
+                const pathLength = geometry.calculatePathLength(path.path);
+                addEdgeWeight(tempEdgeWeights, nodeId, pointId, {
+                  weight: pathLength,
+                  type: "legacy",
+                  path: path.path,
+                });
+                addEdgeWeight(tempEdgeWeights, pointId, nodeId, {
+                  weight: pathLength,
+                  type: "legacy",
+                  path: path.path.toReversed(),
+                });
+                connectedPoints.push(pointId);
+              }
+            } catch (error) {
+              console.error(
+                `Failed to compute path to point ${pointId}:`,
+                error
+              );
+            }
+          }
+        });
+
+        if (connectedPoints.length > 0) {
+          tempAdjacencies.set(nodeId, connectedPoints);
+
+          // Also add reverse connections from points to intermediate
+          connectedPoints.forEach((pointId) => {
+            addAdjacency(tempAdjacencies, pointId, nodeId, false);
+          });
+        } else {
+          console.log(
+            "No graph points connected for 'from' - this will cause pathfinding to fail"
+          );
+        }
+      } else {
+        console.log("No legacy NavMesh query available");
+      }
+    } else if (fromIsAreaEdge) {
+      const areaGroupId = fromEdgeAreaGroups[0];
+
+      this.addPointToAllExitPoints(
+        tempAdjacencies,
+        tempEdgeWeights,
+        nodeId,
+        node.position,
+        areaGroupId
+      );
     }
   }
 
@@ -776,10 +886,19 @@ export class Pathfinder {
     const tempAdjacencies = new Map<string, string[]>();
     const tempEdgeWeights = new Map<string, EdgeWeightInfo[]>();
 
-    // Copy existing connections
-    this._adjacencies.forEach((neighbors, nodeId) => {
-      tempAdjacencies.set(nodeId, [...neighbors]);
-    });
+    this.addIntermediateNodeToTempGraph(
+      tempAdjacencies,
+      tempEdgeWeights,
+      constants.FROM_INTERMEDIATE,
+      fromResult
+    );
+
+    this.addIntermediateNodeToTempGraph(
+      tempAdjacencies,
+      tempEdgeWeights,
+      constants.TO_INTERMEDIATE,
+      toResult
+    );
 
     // Determine edge types
     const fromIsLegacyEdge =
@@ -791,73 +910,6 @@ export class Pathfinder {
     const toIsAreaGroupEdge =
       toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
 
-    // Add intermediate points as temporary nodes
-    if (fromIsLegacyEdge) {
-      tempAdjacencies.set(constants.FROM_INTERMEDIATE, []);
-    } else if (fromIsAreaGroupEdge) {
-      // Point is within areaGroup - connect to all exit points in that areaGroup
-      tempAdjacencies.set(constants.FROM_INTERMEDIATE, []);
-      const areaGroupId = fromResult.fromPointId; // This is the areaGroupId from chooseClosestResult
-
-      this.addPointToAllExitPoints(
-        tempAdjacencies,
-        tempEdgeWeights,
-        constants.FROM_INTERMEDIATE,
-        fromResult.position,
-        areaGroupId
-      );
-    } else {
-      // Respect edge direction for FROM_INTERMEDIATE connections
-      const fromEdge = this.getMapEdge(fromResult.edgeId);
-      const fromConnections = [];
-
-      if (fromEdge?.dir === undefined || fromEdge?.dir === 0) {
-        // Bidirectional or undefined - add both directions
-        fromConnections.push(fromResult.toPointId);
-        fromConnections.push(fromResult.fromPointId);
-      } else if (fromEdge?.dir === 1) {
-        // Forward only - only add toPointId
-        fromConnections.push(fromResult.toPointId);
-      } else if (fromEdge?.dir === -1) {
-        // Backward only - only add fromPointId
-        fromConnections.push(fromResult.fromPointId);
-      }
-
-      tempAdjacencies.set(constants.FROM_INTERMEDIATE, fromConnections);
-    }
-
-    if (toIsLegacyEdge) {
-      tempAdjacencies.set(constants.TO_INTERMEDIATE, []);
-    } else if (toIsAreaGroupEdge) {
-      // Point is within areaGroup - connect to all exit points in that areaGroup
-      tempAdjacencies.set(constants.TO_INTERMEDIATE, []);
-
-      this.addPointToAllExitPoints(
-        tempAdjacencies,
-        tempEdgeWeights,
-        constants.TO_INTERMEDIATE,
-        toResult.position,
-        toResult.fromPointId
-      );
-    } else {
-      // Respect edge direction for TO_INTERMEDIATE connections
-      const toEdge = this.getMapEdge(toResult.edgeId);
-      const toConnections = [];
-
-      if (toEdge?.dir === undefined || toEdge?.dir === 0) {
-        // Bidirectional or undefined - add both directions
-        toConnections.push(toResult.fromPointId);
-      } else if (toEdge?.dir === -1) {
-        // Backward only - only add fromPointId
-        toConnections.push(toResult.fromPointId);
-      } else if (toEdge?.dir === 1) {
-        // Forward only - only add toPointId
-        toConnections.push(toResult.toPointId);
-      }
-
-      tempAdjacencies.set(constants.TO_INTERMEDIATE, toConnections);
-    }
-
     // Special case: if both points are in the same areaGroup, add direct connection
     if (
       fromIsAreaGroupEdge &&
@@ -867,85 +919,17 @@ export class Pathfinder {
       const areaGroupId = fromResult.fromPointId;
       const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
 
+      console.log("connect graphareas 1");
       if (navMeshQuery) {
-        try {
-          const fromV3 = new THREE.Vector3().copy(fromResult.position);
-          const toV3 = new THREE.Vector3().copy(toResult.position);
-
-          let path = navMeshQuery.computePath(fromV3, toV3);
-
-          // If path failed, try finding nearest points on NavMesh first
-          if (!path.success) {
-            console.log("Path failed, trying nearest points on NavMesh");
-            const fromNearest = navMeshQuery.findClosestPoint(fromV3, {
-              halfExtents: new THREE.Vector3(5, 5, 5),
-            });
-            const toNearest = navMeshQuery.findClosestPoint(toV3, {
-              halfExtents: new THREE.Vector3(5, 5, 5),
-            });
-
-            const fromDistance = fromV3.distanceTo(
-              new THREE.Vector3().copy(fromNearest.point)
-            );
-            const toDistance = toV3.distanceTo(
-              new THREE.Vector3().copy(toNearest.point)
-            );
-            console.log(
-              "Path failed, trying nearest points on NavMesh",
-              fromNearest,
-              toNearest,
-              fromV3,
-              toV3,
-              fromDistance,
-              toDistance
-            );
-
-            if (
-              fromNearest.success &&
-              fromNearest.point &&
-              toNearest.success &&
-              toNearest.point
-            ) {
-              console.log("Found nearest points, retrying path");
-              path = navMeshQuery.computePath(
-                fromNearest.point,
-                toNearest.point
-              );
-              console.log("Retry result:", {
-                success: path.success,
-                pathLength: path.path?.length,
-                hasPath: !!path.path,
-              });
-            }
-          }
-
-          if (path.success && path.path) {
-            const directDistance = geometry.calculatePathLength(path.path);
-            console.log(
-              "Adding direct connection with distance:",
-              directDistance
-            );
-
-            addAdjacency(
-              tempAdjacencies,
-              constants.FROM_INTERMEDIATE,
-              constants.TO_INTERMEDIATE,
-              true
-            );
-            addEdgeWeight(
-              tempEdgeWeights,
-              constants.FROM_INTERMEDIATE,
-              constants.TO_INTERMEDIATE,
-              {
-                weight: directDistance,
-                type: "legacy",
-                path: path.path,
-              }
-            );
-          }
-        } catch (error) {
-          console.error("Failed to compute direct areaGroup path:", error);
-        }
+        this.computeNavMeshPathAndConnect(
+          navMeshQuery,
+          fromResult.position,
+          toResult.position,
+          constants.FROM_INTERMEDIATE,
+          constants.TO_INTERMEDIATE,
+          tempAdjacencies,
+          tempEdgeWeights
+        );
       } else {
         console.log("No NavMesh query found for areaGroup:", areaGroupId);
       }
@@ -971,78 +955,7 @@ export class Pathfinder {
       ? []
       : this.getAreaGroupsContainingEdge(toResult.edgeId);
 
-    // Handle legacy NavMesh edges
-    if (fromIsLegacyEdge) {
-      const legacyNavMeshQuery = this._legacyNavMeshQuery;
-      if (legacyNavMeshQuery) {
-        // Find all graph points that intersect with the legacy NavMesh
-        const connectedPoints: string[] = [];
-
-        // Connect to all graph points that intersect with legacy NavMesh
-        Object.entries(this._map.points).forEach(([pointId, point]) => {
-          if (recastUtils.isPointOnLegacyNavMesh(point, legacyNavMeshQuery)) {
-            // Check if this point is reachable from the from position
-            try {
-              const fromV3 = new THREE.Vector3().copy(fromResult.position);
-              const pointV3 = new THREE.Vector3().copy(point);
-
-              const path = legacyNavMeshQuery.computePath(fromV3, pointV3);
-              if (path.success && path.path) {
-                const pathLength = geometry.calculatePathLength(path.path);
-                addEdgeWeight(
-                  tempEdgeWeights,
-                  constants.FROM_INTERMEDIATE,
-                  pointId,
-                  {
-                    weight: pathLength,
-                    type: "legacy",
-                    path: path.path,
-                  }
-                );
-                connectedPoints.push(pointId);
-              }
-            } catch (error) {
-              console.error(
-                `Failed to compute path to point ${pointId}:`,
-                error
-              );
-            }
-          }
-        });
-
-        if (connectedPoints.length > 0) {
-          tempAdjacencies.set(constants.FROM_INTERMEDIATE, connectedPoints);
-
-          // Also add reverse connections from points to intermediate
-          connectedPoints.forEach((pointId) => {
-            tempAdjacencies.get(pointId)!.push(constants.FROM_INTERMEDIATE);
-          });
-        } else {
-          console.log(
-            "No graph points connected for 'from' - this will cause pathfinding to fail"
-          );
-        }
-      } else {
-        console.log("No legacy NavMesh query available");
-      }
-    }
-    // Handle areaGroup edges by computing NavMesh paths to nearest exit points
-    else if (fromIsAreaEdge) {
-      const areaGroupId = fromEdgeAreaGroups[0];
-
-      const bothInSameAreaGroup =
-        toIsAreaEdge && toEdgeAreaGroups[0] === areaGroupId;
-
-      if (!bothInSameAreaGroup) {
-        this.addPointToAllExitPoints(
-          tempAdjacencies,
-          tempEdgeWeights,
-          constants.FROM_INTERMEDIATE,
-          fromResult.position,
-          areaGroupId
-        );
-      }
-    } else if (!fromIsLegacyEdge) {
+    if (!fromIsLegacyEdge && !fromIsAreaEdge) {
       this.connectIntermediateToEdgePoints(
         tempAdjacencies,
         tempEdgeWeights,
@@ -1050,6 +963,20 @@ export class Pathfinder {
         fromResult,
         fromEdge?.dir,
         fromIsAreaEdge
+      );
+    }
+
+    if (!toIsLegacyEdge && !toIsAreaEdge) {
+      // Regular edge handling (only for non-legacy edges)
+      //const toPosition = new THREE.Vector3().copy(toResult.position);
+
+      this.connectIntermediateToEdgePointsTo(
+        tempAdjacencies,
+        tempEdgeWeights,
+        toResult.position,
+        toResult,
+        toEdge?.dir,
+        toIsAreaEdge
       );
     }
 
@@ -1080,6 +1007,7 @@ export class Pathfinder {
       const areaGroupId = fromEdgeAreaGroups[0];
       const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
 
+      console.log("connect graphareas 2");
       if (navMeshQuery) {
         const fromV3 = new THREE.Vector3().copy(fromResult.position);
         const toV3 = new THREE.Vector3().copy(toResult.position);
@@ -1096,104 +1024,11 @@ export class Pathfinder {
       }
     }
 
-    // Handle legacy NavMesh edges for 'to'
-    if (toIsLegacyEdge) {
-      const legacyNavMeshQuery = this._legacyNavMeshQuery;
-      if (legacyNavMeshQuery) {
-        // Find all graph points that intersect with the legacy NavMesh
-        const connectedPoints: string[] = [];
-
-        // Connect to all graph points that intersect with legacy NavMesh
-        Object.entries(this._map.points).forEach(([pointId, point]) => {
-          if (recastUtils.isPointOnLegacyNavMesh(point, legacyNavMeshQuery)) {
-            // Check if this point is reachable from the to position
-            try {
-              const pointV3 = new THREE.Vector3().copy(point);
-              const toV3 = new THREE.Vector3().copy(toResult.position);
-
-              const path = legacyNavMeshQuery.computePath(pointV3, toV3);
-              if (path.success && path.path) {
-                const pathLength = geometry.calculatePathLength(path.path);
-                addEdgeWeight(
-                  tempEdgeWeights,
-                  pointId,
-                  constants.TO_INTERMEDIATE,
-                  {
-                    weight: pathLength,
-                    type: "legacy",
-                    path: path.path,
-                  }
-                );
-                connectedPoints.push(pointId);
-              }
-            } catch (error) {
-              console.error(
-                `Failed to compute path from point ${pointId}:`,
-                error
-              );
-            }
-          }
-        });
-
-        if (connectedPoints.length > 0) {
-          tempAdjacencies.set(constants.TO_INTERMEDIATE, connectedPoints);
-
-          // Also add reverse connections from intermediate to points
-          connectedPoints.forEach((pointId) => {
-            tempAdjacencies.get(pointId)!.push(constants.TO_INTERMEDIATE);
-          });
-        }
-      }
-    }
-    // Handle areaGroup edges for 'to'
-    else if (toIsAreaEdge) {
-      const areaGroupId = toEdgeAreaGroups[0];
-
-      // Check if both points are in the same areaGroup - if so, skip exit connections
-      const bothInSameAreaGroup =
-        fromIsAreaEdge && fromEdgeAreaGroups[0] === areaGroupId;
-
-      if (!bothInSameAreaGroup) {
-        this.addPointToAllExitPoints(
-          tempAdjacencies,
-          tempEdgeWeights,
-          constants.TO_INTERMEDIATE,
-          toResult.position,
-          areaGroupId
-        );
-      }
-    } else if (!toIsLegacyEdge) {
-      // Regular edge handling (only for non-legacy edges)
-      const toPosition = new THREE.Vector3().copy(toResult.position);
-
-      this.connectIntermediateToEdgePointsTo(
-        tempAdjacencies,
-        tempEdgeWeights,
-        toPosition,
-        toResult,
-        toEdge?.dir,
-        toIsAreaEdge
-      );
-    }
-
     return {
       tempAdjacencies,
       tempEdgeWeights,
     };
   }
-
-  private addIntermediateNodeToTempGraph(
-    tempAdjacencies: Map<string, string[]>,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
-    nodeId: string,
-    node: {
-      position: THREE.Vector3Like;
-      edgeId: string;
-      fromPointId: string;
-      toPointId: string;
-      distance: number;
-    }
-  ): void {}
 
   private addPointToAllExitPoints(
     tempAdjacencies: Map<string, string[]>,
@@ -1249,6 +1084,11 @@ export class Pathfinder {
     const visited = new Set<string>();
     const queue = new Map<string, number>();
 
+    this._adjacencies.forEach((_, nodeId) => {
+      distances.set(nodeId, Infinity);
+      previous.set(nodeId, null);
+    });
+
     // Initialize with all nodes from temp graph
     tempGraph.forEach((_, nodeId) => {
       distances.set(nodeId, Infinity);
@@ -1275,7 +1115,9 @@ export class Pathfinder {
       visited.add(current);
 
       // Check neighbors
-      const neighbors = tempGraph.get(current) || [];
+      const tempNeighbors = tempGraph.get(current) || [];
+      const staticNeighbors = this._adjacencies.get(current) || [];
+      const neighbors = [...new Set([...tempNeighbors, ...staticNeighbors])];
 
       for (const neighbor of neighbors) {
         if (visited.has(neighbor)) continue;
@@ -1322,17 +1164,10 @@ export class Pathfinder {
 
     let nmResult;
     try {
-      nmResult = threeToSoloNavMesh(legacyMeshes, {
-        walkableRadius: 0,
-        cs: 0.05,
-        ch: 0.05,
-        maxSimplificationError: 0.5,
-        minRegionArea: 0,
-        mergeRegionArea: 0,
-        detailSampleDist: 2,
-        detailSampleMaxError: 0.5,
-        maxEdgeLen: 30,
-      });
+      nmResult = threeToSoloNavMesh(
+        legacyMeshes,
+        constants.DEFAULT_NAVMESH_PARAMS
+      );
     } catch (error) {
       console.error("Error creating legacy NavMesh:", error);
       return;
@@ -1409,9 +1244,10 @@ export class Pathfinder {
       if (areaMeshes.length === 0) continue;
 
       try {
-        const nmResult = threeToSoloNavMesh(areaMeshes, {
-          ...constants.DEFAULT_NAVMESH_PARAMS,
-        });
+        const nmResult = threeToSoloNavMesh(
+          areaMeshes,
+          constants.DEFAULT_NAVMESH_PARAMS
+        );
         if (nmResult.navMesh) {
           this._areaGroupNavMeshes.set(groupId, nmResult.navMesh);
 
