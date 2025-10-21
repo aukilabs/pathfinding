@@ -408,11 +408,11 @@ export class Pathfinder {
     const toEdgeResult = this.getNearestPositionOnEdge(to);
 
     // Find nearest positions on legacy NavMesh
-    const fromLegacyResult = recastUtils.getNearestPositionOnLegacyNavMesh(
+    const fromLegacyResult = recastUtils.getNearestPositionOnNavMesh(
       this._legacyNavMeshQuery,
       from
     );
-    const toLegacyResult = recastUtils.getNearestPositionOnLegacyNavMesh(
+    const toLegacyResult = recastUtils.getNearestPositionOnNavMesh(
       this._legacyNavMeshQuery,
       to
     );
@@ -1563,12 +1563,12 @@ export class Pathfinder {
               // Store both directions
               this.addEdgeWeightConnection(fromPointId, toPointId, {
                 weight: distance,
-                type: "area",
+                type: "areaGroup",
                 path: path.path,
               });
               this.addEdgeWeightConnection(toPointId, fromPointId, {
                 weight: distance,
-                type: "area",
+                type: "areaGroup",
                 path: path.path.toReversed(),
               });
             }

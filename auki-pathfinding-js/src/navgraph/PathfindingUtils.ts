@@ -5,8 +5,17 @@ import { NavMeshQuery } from "recast-navigation";
 import * as constants from "./Constants";
 
 export function chooseClosestResult(
-  edgeResult: any,
-  legacyResult: any,
+  edgeResult: {
+    position: THREE.Vector3Like;
+    edgeId: string;
+    fromPointId: string;
+    toPointId: string;
+    distance: number;
+  } | null,
+  legacyResult: {
+    position: THREE.Vector3Like;
+    distance: number;
+  } | null,
   originalPosition: THREE.Vector3Like
 ): any {
   if (!edgeResult && !legacyResult) return null;

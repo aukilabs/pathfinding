@@ -22,6 +22,9 @@ export const TO_INTERMEDIATE = "to_intermediate";
 /** Edge ID used to identify legacy NavMesh surface edges */
 export const LEGACY_NAVMESH_SURFACE_EDGE_ID = "_legacy_navmesh_surface";
 
+/** Edge ID used to identify points within areaGroups */
+export const WITHIN_AREA_GROUP_EDGE_ID = "_within_graph_areagroup";
+
 /** Prefix for legacy portal point IDs */
 const LEGACY_PORTAL_PREFIX = "legacy_portal_";
 

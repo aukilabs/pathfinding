@@ -3,6 +3,38 @@ import { NavMesh, NavMeshQuery } from "recast-navigation";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
 
+export function getNavmeshUnderPoint(
+  point: THREE.Vector3Like,
+  navMeshQueries: Map<string, NavMeshQuery>
+): string | null {
+  // Use NavMesh query to find nearest point on surface
+  const pointV3 = new THREE.Vector3(point.x, point.y, point.z);
+
+  try {
+    for (const [areaGroupId, areaGroupQuery] of Object.entries(
+      navMeshQueries
+    )) {
+      const result = (areaGroupQuery as NavMeshQuery).findClosestPoint(
+        pointV3,
+        {
+          halfExtents: new THREE.Vector3(
+            constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.x,
+            constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.y,
+            constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.z
+          ),
+        }
+      );
+      if (result.success && result.point && result.isPointOverPoly) {
+        return areaGroupId;
+      }
+    }
+  } catch (error) {
+    console.error("Error checking point on legacy NavMesh:", error);
+  }
+
+  return null;
+}
+
 export function isPointOnLegacyNavMesh(
   point: THREE.Vector3Like,
   navMeshQuery: NavMeshQuery
@@ -19,10 +51,7 @@ export function isPointOnLegacyNavMesh(
       ),
     });
     if (result.success && result.point) {
-      const distance = pointV3.distanceTo(
-        new THREE.Vector3().copy(result.point)
-      );
-      return distance < constants.LEGACY_NAVMESH_SURFACE_THRESHOLD;
+      return result.isPointOverPoly;
     }
   } catch (error) {
     console.error("Error checking point on legacy NavMesh:", error);
@@ -31,7 +60,7 @@ export function isPointOnLegacyNavMesh(
   return false;
 }
 
-export function getNearestPositionOnLegacyNavMesh(
+export function getNearestPositionOnNavMesh(
   legacyNavMeshQuery: NavMeshQuery | null,
   position: THREE.Vector3Like
 ): {
