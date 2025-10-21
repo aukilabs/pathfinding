@@ -701,51 +701,6 @@ export class Pathfinder {
     tempAdjacencies: Map<string, string[]>;
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>;
   } {
-    // Check for mixed case: one point off-mesh, other in areaGroup, but edge belongs to same areaGroup
-    // Case 1: from is off-mesh (regular edge), to is in areaGroup
-    if (
-      fromResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
-      toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID
-    ) {
-      const toAreaGroupId = toResult.fromPointId;
-      const fromEdgeAreaGroups = this.getAreaGroupsContainingEdge(
-        fromResult.edgeId
-      );
-
-      if (fromEdgeAreaGroups.includes(toAreaGroupId)) {
-        console.log(
-          "Mixed case detected: from off-mesh, to in areaGroup, same areaGroup"
-        );
-        // Convert fromResult to areaGroup result
-        fromResult.edgeId = constants.WITHIN_AREA_GROUP_EDGE_ID;
-        fromResult.fromPointId = toAreaGroupId;
-        fromResult.toPointId = toAreaGroupId;
-        // Keep original position for direct pathfinding
-      }
-    }
-
-    // Case 2: to is off-mesh (regular edge), from is in areaGroup
-    if (
-      toResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
-      fromResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID
-    ) {
-      const fromAreaGroupId = fromResult.fromPointId;
-      const toEdgeAreaGroups = this.getAreaGroupsContainingEdge(
-        toResult.edgeId
-      );
-
-      if (toEdgeAreaGroups.includes(fromAreaGroupId)) {
-        console.log(
-          "Mixed case detected: to off-mesh, from in areaGroup, same areaGroup"
-        );
-        // Convert toResult to areaGroup result
-        toResult.edgeId = constants.WITHIN_AREA_GROUP_EDGE_ID;
-        toResult.fromPointId = fromAreaGroupId;
-        toResult.toPointId = fromAreaGroupId;
-        // Keep original position for direct pathfinding
-      }
-    }
-
     // Create a copy of the adjacency list
     const tempAdjacencies = new Map<string, string[]>();
     const tempEdgeWeights = new Map<string, EdgeWeightInfo[]>();
@@ -774,44 +729,6 @@ export class Pathfinder {
     const toIsAreaGroupEdge =
       toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID;
 
-    // Special case: if both points are in the same areaGroup, add direct connection
-    if (
-      fromIsAreaGroupEdge &&
-      toIsAreaGroupEdge &&
-      fromResult.fromPointId === toResult.fromPointId
-    ) {
-      const areaGroupId = fromResult.fromPointId;
-      const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
-
-      console.log("connect graphareas 1");
-      if (navMeshQuery) {
-        this.computeNavMeshPathAndConnect(
-          navMeshQuery,
-          fromResult.position,
-          toResult.position,
-          constants.FROM_INTERMEDIATE,
-          constants.TO_INTERMEDIATE,
-          tempAdjacencies,
-          tempEdgeWeights
-        );
-      } else {
-        console.log("No NavMesh query found for areaGroup:", areaGroupId);
-      }
-    }
-
-    // Add connections from existing nodes to intermediate points
-    const fromIsAreaEdge = fromIsLegacyEdge
-      ? false
-      : this.getAreaGroupsContainingEdge(fromResult.edgeId).length > 0;
-    const toIsAreaEdge = toIsLegacyEdge
-      ? false
-      : this.getAreaGroupsContainingEdge(toResult.edgeId).length > 0;
-
-    const fromEdge = fromIsLegacyEdge
-      ? null
-      : this._map!.edges[fromResult.edgeId];
-    const toEdge = toIsLegacyEdge ? null : this._map.edges[toResult.edgeId];
-
     const fromEdgeAreaGroups = fromIsLegacyEdge
       ? []
       : this.getAreaGroupsContainingEdge(fromResult.edgeId);
@@ -819,48 +736,71 @@ export class Pathfinder {
       ? []
       : this.getAreaGroupsContainingEdge(toResult.edgeId);
 
-    if (fromIsLegacyEdge && toIsLegacyEdge) {
-      // Both 'from' and 'to' are on legacy NavMesh
-      // Add direct connection between intermediate points
-      const legacyNavMeshQuery = this._legacyNavMeshQuery;
-      if (legacyNavMeshQuery) {
-        this.computeNavMeshPathAndConnect(
-          legacyNavMeshQuery,
-          fromResult.position,
-          toResult.position,
-          constants.FROM_INTERMEDIATE,
-          constants.TO_INTERMEDIATE,
-          tempAdjacencies,
-          tempEdgeWeights
-        );
-      }
-    }
+    // Add connections from existing nodes to intermediate points
+    const fromIsAreaEdge = fromIsLegacyEdge
+      ? false
+      : fromEdgeAreaGroups.length > 0;
+    const toIsAreaEdge = toIsLegacyEdge ? false : toEdgeAreaGroups.length > 0;
 
-    // Special case: handle same-areaGroup direct connections
+    // Determine the appropriate NavMesh query for direct connections
+    let directNavMeshQuery: NavMeshQuery | null = null;
+
+    // Special case: if both points are in the same areaGroup, add direct connection
     if (
+      fromIsAreaGroupEdge &&
+      toIsAreaGroupEdge &&
+      fromResult.fromPointId === toResult.fromPointId
+    ) {
+      const areaGroupId = fromResult.fromPointId;
+      directNavMeshQuery =
+        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+    }
+    // Mixed case: from off-mesh, to in areaGroup, but same areaGroup
+    else if (
+      fromResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
+      toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID &&
+      fromEdgeAreaGroups.includes(toResult.fromPointId)
+    ) {
+      const areaGroupId = toResult.fromPointId;
+      directNavMeshQuery =
+        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+    }
+    // Mixed case: to off-mesh, from in areaGroup, but same areaGroup
+    else if (
+      toResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
+      fromResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID &&
+      toEdgeAreaGroups.includes(fromResult.fromPointId)
+    ) {
+      const areaGroupId = fromResult.fromPointId;
+      directNavMeshQuery =
+        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+    }
+    // Both 'from' and 'to' are on legacy NavMesh
+    else if (fromIsLegacyEdge && toIsLegacyEdge) {
+      directNavMeshQuery = this._legacyNavMeshQuery;
+    }
+    // Both 'from' and 'to' are in the same areaGroup (regular edge case)
+    else if (
       fromIsAreaEdge &&
       toIsAreaEdge &&
       fromEdgeAreaGroups[0] === toEdgeAreaGroups[0]
     ) {
-      // Both 'from' and 'to' are in the same areaGroup - check for direct connection
       const areaGroupId = fromEdgeAreaGroups[0];
-      const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
+      directNavMeshQuery =
+        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+    }
 
-      console.log("connect graphareas 2");
-      if (navMeshQuery) {
-        const fromV3 = new THREE.Vector3().copy(fromResult.position);
-        const toV3 = new THREE.Vector3().copy(toResult.position);
-
-        this.computeNavMeshPathAndConnect(
-          navMeshQuery,
-          fromV3,
-          toV3,
-          constants.FROM_INTERMEDIATE,
-          constants.TO_INTERMEDIATE,
-          tempAdjacencies,
-          tempEdgeWeights
-        );
-      }
+    // Execute direct connection if we found a suitable NavMesh query
+    if (directNavMeshQuery) {
+      this.computeNavMeshPathAndConnect(
+        directNavMeshQuery,
+        fromResult.position,
+        toResult.position,
+        constants.FROM_INTERMEDIATE,
+        constants.TO_INTERMEDIATE,
+        tempAdjacencies,
+        tempEdgeWeights
+      );
     }
 
     return {
