@@ -68,25 +68,3 @@ export function reconstructPath(
 
   return path[0] === from ? path : null;
 }
-
-export function tryDirectLegacyNavMeshPath(
-  legacyNavMeshQuery: NavMeshQuery | null,
-  from: THREE.Vector3Like,
-  to: THREE.Vector3Like
-): THREE.Vector3Like[] | null {
-  if (!legacyNavMeshQuery) return null;
-
-  try {
-    const fromV3 = new THREE.Vector3(from.x, from.y, from.z);
-    const toV3 = new THREE.Vector3(to.x, to.y, to.z);
-
-    const path = legacyNavMeshQuery.computePath(fromV3, toV3);
-    if (path.success && path.path && path.path.length > 0) {
-      return [from, ...path.path, to];
-    }
-  } catch (error) {
-    console.error("Error computing direct legacy NavMesh path:", error);
-  }
-
-  return null;
-}

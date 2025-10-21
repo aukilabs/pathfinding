@@ -950,34 +950,6 @@ export class Pathfinder {
         console.log("No NavMesh query found for areaGroup:", areaGroupId);
       }
     }
-    // Special case: if both points are on legacy NavMesh, add direct connection
-    else if (fromIsLegacyEdge && toIsLegacyEdge) {
-      const directPath = pathfinding.tryDirectLegacyNavMeshPath(
-        this._legacyNavMeshQuery,
-        fromResult.position,
-        toResult.position
-      );
-
-      if (directPath) {
-        const directDistance = geometry.calculatePathLength(directPath);
-        addAdjacency(
-          tempAdjacencies,
-          constants.FROM_INTERMEDIATE,
-          constants.TO_INTERMEDIATE,
-          true
-        );
-        addEdgeWeight(
-          tempEdgeWeights,
-          constants.FROM_INTERMEDIATE,
-          constants.TO_INTERMEDIATE,
-          {
-            weight: directDistance,
-            type: "legacy",
-            path: directPath,
-          }
-        );
-      }
-    }
 
     // Add connections from existing nodes to intermediate points
     const fromIsAreaEdge = fromIsLegacyEdge
@@ -1081,74 +1053,20 @@ export class Pathfinder {
       );
     }
 
-    // Special case: handle mixed legacy/graph pathfinding
-    if (fromIsLegacyEdge && !toIsLegacyEdge && !toIsAreaGroupEdge) {
-      // 'from' is on legacy NavMesh, 'to' is on regular graph
-      // Connect the 'to' intermediate point to its actual edge points
-      if (toResult.fromPointId && toResult.toPointId) {
-        addAdjacency(
-          tempAdjacencies,
-          toResult.fromPointId,
-          constants.TO_INTERMEDIATE,
-          false
-        );
-        addAdjacency(
-          tempAdjacencies,
-          toResult.toPointId,
-          constants.TO_INTERMEDIATE,
-          false
-        );
-      }
-    } else if (!fromIsLegacyEdge && toIsLegacyEdge && !fromIsAreaGroupEdge) {
-      // 'from' is on regular graph, 'to' is on legacy NavMesh
-      // Connect the 'from' intermediate point to its actual edge points
-      if (fromResult.fromPointId && fromResult.toPointId) {
-        addAdjacency(
-          tempAdjacencies,
-          fromResult.fromPointId,
-          constants.FROM_INTERMEDIATE,
-          false
-        );
-        addAdjacency(
-          tempAdjacencies,
-          fromResult.toPointId,
-          constants.FROM_INTERMEDIATE,
-          false
-        );
-      }
-    } else if (fromIsLegacyEdge && toIsLegacyEdge) {
+    if (fromIsLegacyEdge && toIsLegacyEdge) {
       // Both 'from' and 'to' are on legacy NavMesh
       // Add direct connection between intermediate points
       const legacyNavMeshQuery = this._legacyNavMeshQuery;
       if (legacyNavMeshQuery) {
-        try {
-          const fromV3 = new THREE.Vector3().copy(fromResult.position);
-          const toV3 = new THREE.Vector3().copy(toResult.position);
-
-          const path = legacyNavMeshQuery.computePath(fromV3, toV3);
-
-          if (path.success && path.path) {
-            const pathLength = geometry.calculatePathLength(path.path);
-            addAdjacency(
-              tempAdjacencies,
-              constants.FROM_INTERMEDIATE,
-              constants.TO_INTERMEDIATE,
-              true
-            );
-            addEdgeWeight(
-              tempEdgeWeights,
-              constants.FROM_INTERMEDIATE,
-              constants.TO_INTERMEDIATE,
-              {
-                weight: pathLength,
-                type: "legacy",
-                path: path.path,
-              }
-            );
-          }
-        } catch (error) {
-          console.error("Failed to compute direct legacy NavMesh path:", error);
-        }
+        this.computeNavMeshPathAndConnect(
+          legacyNavMeshQuery,
+          fromResult.position,
+          toResult.position,
+          constants.FROM_INTERMEDIATE,
+          constants.TO_INTERMEDIATE,
+          tempAdjacencies,
+          tempEdgeWeights
+        );
       }
     }
 
@@ -1263,6 +1181,19 @@ export class Pathfinder {
       tempEdgeWeights,
     };
   }
+
+  private addIntermediateNodeToTempGraph(
+    tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
+    nodeId: string,
+    node: {
+      position: THREE.Vector3Like;
+      edgeId: string;
+      fromPointId: string;
+      toPointId: string;
+      distance: number;
+    }
+  ): void {}
 
   private addPointToAllExitPoints(
     tempAdjacencies: Map<string, string[]>,
