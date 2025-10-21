@@ -14,7 +14,7 @@ import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
 const { createEdgeWeightKey } = constants;
-const { addAdjacency } = graphUtils;
+const { addAdjacency, computeNavMeshPathAndConnect } = graphUtils;
 
 export type NavOptions = {
   maxDistance?: number;
@@ -391,9 +391,15 @@ export class Pathfinder {
     const tempGraphResults = this.createTempGraph(fromResult, toResult);
     const { tempAdjacencies, tempEdgeWeights } = tempGraphResults;
 
-    let graphPath = this.dijkstraWithTempGraph(
+    // Merge temp graphs with static graphs for optimal performance
+    const mergedGraphs = this.mergeTempWithStatic(
       tempAdjacencies,
-      tempEdgeWeights,
+      tempEdgeWeights
+    );
+
+    let graphPath = this.dijkstraWithMergedGraph(
+      mergedGraphs.mergedAdjacencies,
+      mergedGraphs.mergedEdgeWeights,
       constants.FROM_INTERMEDIATE,
       constants.TO_INTERMEDIATE
     );
@@ -478,37 +484,6 @@ export class Pathfinder {
     return fullPath;
   }
 
-  /**
-   * Helper function to compute NavMesh path and add connection
-   */
-  private computeNavMeshPathAndConnect(
-    navMeshQuery: NavMeshQuery,
-    fromPoint: THREE.Vector3Like,
-    toPoint: THREE.Vector3Like,
-    fromId: string,
-    toId: string,
-    adjacencyList: Map<string, string[]>,
-    edgeWeights: Map<string, EdgeWeightInfo[]>
-  ): boolean {
-    try {
-      const path = navMeshQuery.computePath(fromPoint, toPoint);
-      if (path.success && path.path) {
-        const distance = geometry.calculatePathLength(path.path);
-        addAdjacency(adjacencyList, edgeWeights, fromId, toId, true, {
-          weight: distance,
-          path: path.path,
-        });
-        return true;
-      }
-    } catch (error) {
-      console.error(
-        `Failed to compute NavMesh path from ${fromId} to ${toId}:`,
-        error
-      );
-    }
-    return false;
-  }
-
   private addIntermediateNodeToTempGraph(
     tempAdjacencies: Map<string, string[]>,
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
@@ -579,7 +554,7 @@ export class Pathfinder {
         Object.entries(this._map.points).forEach(([pointId, point]) => {
           if (recastUtils.isPointOnLegacyNavMesh(point, legacyNavMeshQuery)) {
             // Connect to all graph points that intersect with legacy NavMesh
-            this.computeNavMeshPathAndConnect(
+            computeNavMeshPathAndConnect(
               legacyNavMeshQuery,
               node.position,
               point,
@@ -602,6 +577,35 @@ export class Pathfinder {
         areaGroupId
       );
     }
+  }
+
+  /**
+   * Merge temporary graphs with static graphs for optimal Dijkstra performance
+   */
+  private mergeTempWithStatic(
+    tempAdjacencies: Map<string, string[]>,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>
+  ): {
+    mergedAdjacencies: Map<string, string[]>;
+    mergedEdgeWeights: Map<string, EdgeWeightInfo[]>;
+  } {
+    // Start with copies of the static graphs
+    const mergedAdjacencies = new Map(this._adjacencies);
+    const mergedEdgeWeights = new Map(this._edgeWeights);
+
+    // Merge temp adjacencies
+    tempAdjacencies.forEach((neighbors, nodeId) => {
+      const existing = mergedAdjacencies.get(nodeId) || [];
+      mergedAdjacencies.set(nodeId, [...existing, ...neighbors]);
+    });
+
+    // Merge temp edge weights
+    tempEdgeWeights.forEach((weights, key) => {
+      const existing = mergedEdgeWeights.get(key) || [];
+      mergedEdgeWeights.set(key, [...existing, ...weights]);
+    });
+
+    return { mergedAdjacencies, mergedEdgeWeights };
   }
 
   private createTempGraph(
@@ -704,7 +708,7 @@ export class Pathfinder {
 
     // Execute direct connection if we found a suitable NavMesh query
     if (directNavMeshQuery) {
-      this.computeNavMeshPathAndConnect(
+      computeNavMeshPathAndConnect(
         directNavMeshQuery,
         fromResult.position,
         toResult.position,
@@ -743,7 +747,7 @@ export class Pathfinder {
           const exitPosition = this.getMapPointInternal(pointId);
           if (exitPosition) {
             try {
-              this.computeNavMeshPathAndConnect(
+              computeNavMeshPathAndConnect(
                 navMeshQuery,
                 position,
                 exitPosition,
@@ -764,9 +768,12 @@ export class Pathfinder {
     }
   }
 
-  private dijkstraWithTempGraph(
-    tempGraph: Map<string, string[]>,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
+  /**
+   * Optimized Dijkstra using pre-merged graphs for better performance
+   */
+  private dijkstraWithMergedGraph(
+    mergedAdjacencies: Map<string, string[]>,
+    mergedEdgeWeights: Map<string, EdgeWeightInfo[]>,
     from: string,
     to: string
   ): string[] | null {
@@ -775,69 +782,55 @@ export class Pathfinder {
     const visited = new Set<string>();
     const queue = new Map<string, number>();
 
-    this._adjacencies.forEach((_, nodeId) => {
-      distances.set(nodeId, Infinity);
-      previous.set(nodeId, null);
-    });
-
-    // Initialize with all nodes from temp graph
-    tempGraph.forEach((_, nodeId) => {
-      distances.set(nodeId, Infinity);
-      previous.set(nodeId, null);
-    });
+    // Initialize distances
     distances.set(from, 0);
     queue.set(from, 0);
 
     while (queue.size > 0) {
-      // Find node with minimum distance
+      // Find the node with the minimum distance
       let current = "";
-      let minDist = Infinity;
-      queue.forEach((dist, node) => {
-        if (dist < minDist) {
-          minDist = dist;
-          current = node;
+      let minDistance = Infinity;
+      for (const [nodeId, distance] of queue) {
+        if (distance < minDistance) {
+          minDistance = distance;
+          current = nodeId;
         }
-      });
+      }
 
-      if (current === to) break;
-      if (minDist === Infinity) break;
+      if (current === to) {
+        return pathfinding.reconstructPath(previous, from, to);
+      }
 
       queue.delete(current);
       visited.add(current);
 
-      // Check neighbors
-      const tempNeighbors = tempGraph.get(current) || [];
-      const staticNeighbors = this._adjacencies.get(current) || [];
-      const neighbors = [...new Set([...tempNeighbors, ...staticNeighbors])];
+      // Single neighbor lookup (no merging needed)
+      const neighbors = mergedAdjacencies.get(current) || [];
 
       for (const neighbor of neighbors) {
         if (visited.has(neighbor)) continue;
 
-        const staticEdgeWeight = graphUtils.getEdgeWeight(
-          this._edgeWeights,
+        // Single weight lookup (no Math.min needed)
+        const edgeWeight = graphUtils.getEdgeWeight(
+          mergedEdgeWeights,
           current,
           neighbor
         );
 
-        const tempEdgeWeight = graphUtils.getEdgeWeight(
-          tempEdgeWeights,
-          current,
-          neighbor
-        );
+        if (edgeWeight === Infinity) continue;
 
-        const edgeWeight = Math.min(staticEdgeWeight, tempEdgeWeight);
+        const newDistance = distances.get(current)! + edgeWeight;
+        const currentDistance = distances.get(neighbor) ?? Infinity;
 
-        const newDist = distances.get(current)! + edgeWeight;
-
-        if (newDist < (distances.get(neighbor) || Infinity)) {
-          distances.set(neighbor, newDist);
+        if (newDistance < currentDistance) {
+          distances.set(neighbor, newDistance);
           previous.set(neighbor, current);
-          queue.set(neighbor, newDist);
+          queue.set(neighbor, newDistance);
         }
       }
     }
 
-    return pathfinding.reconstructPath(previous, from, to);
+    return null;
   }
 
   private initializeLegacyAreaNavMeshes() {
@@ -899,7 +892,7 @@ export class Pathfinder {
         const fromPoint = this._map.points[fromId];
         const toPoint = this._map.points[toId];
 
-        this.computeNavMeshPathAndConnect(
+        computeNavMeshPathAndConnect(
           lnmQuery,
           fromPoint,
           toPoint,
@@ -973,7 +966,7 @@ export class Pathfinder {
           const toPoint = this.getMapPointInternal(toPointId)!;
 
           if (fromPoint && toPoint) {
-            this.computeNavMeshPathAndConnect(
+            computeNavMeshPathAndConnect(
               navMesh,
               fromPoint,
               toPoint,

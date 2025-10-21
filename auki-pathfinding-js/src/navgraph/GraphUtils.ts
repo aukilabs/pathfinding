@@ -240,3 +240,34 @@ export function addAdjacency(
     });
   }
 }
+
+/**
+ * Helper function to compute NavMesh path and add connection
+ */
+export function computeNavMeshPathAndConnect(
+  navMeshQuery: NavMeshQuery,
+  fromPoint: THREE.Vector3Like,
+  toPoint: THREE.Vector3Like,
+  fromId: string,
+  toId: string,
+  adjacencyList: Map<string, string[]>,
+  edgeWeights: Map<string, EdgeWeightInfo[]>
+): boolean {
+  try {
+    const path = navMeshQuery.computePath(fromPoint, toPoint);
+    if (path.success && path.path) {
+      const distance = geometry.calculatePathLength(path.path);
+      addAdjacency(adjacencyList, edgeWeights, fromId, toId, true, {
+        weight: distance,
+        path: path.path,
+      });
+      return true;
+    }
+  } catch (error) {
+    console.error(
+      `Failed to compute NavMesh path from ${fromId} to ${toId}:`,
+      error
+    );
+  }
+  return false;
+}
