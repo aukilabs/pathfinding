@@ -866,6 +866,51 @@ export class Pathfinder {
     tempAdjacencyList: Map<string, string[]>;
     tempPaths: Map<string, THREE.Vector3Like[]>;
   } {
+    // Check for mixed case: one point off-mesh, other in areaGroup, but edge belongs to same areaGroup
+    // Case 1: from is off-mesh (regular edge), to is in areaGroup
+    if (
+      fromResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
+      toResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID
+    ) {
+      const toAreaGroupId = toResult.fromPointId;
+      const fromEdgeAreaGroups = this.getAreaGroupsContainingEdge(
+        fromResult.edgeId
+      );
+
+      if (fromEdgeAreaGroups.includes(toAreaGroupId)) {
+        console.log(
+          "Mixed case detected: from off-mesh, to in areaGroup, same areaGroup"
+        );
+        // Convert fromResult to areaGroup result
+        fromResult.edgeId = constants.WITHIN_AREA_GROUP_EDGE_ID;
+        fromResult.fromPointId = toAreaGroupId;
+        fromResult.toPointId = toAreaGroupId;
+        // Keep original position for direct pathfinding
+      }
+    }
+
+    // Case 2: to is off-mesh (regular edge), from is in areaGroup
+    if (
+      toResult.edgeId !== constants.WITHIN_AREA_GROUP_EDGE_ID &&
+      fromResult.edgeId === constants.WITHIN_AREA_GROUP_EDGE_ID
+    ) {
+      const fromAreaGroupId = fromResult.fromPointId;
+      const toEdgeAreaGroups = this.getAreaGroupsContainingEdge(
+        toResult.edgeId
+      );
+
+      if (toEdgeAreaGroups.includes(fromAreaGroupId)) {
+        console.log(
+          "Mixed case detected: to off-mesh, from in areaGroup, same areaGroup"
+        );
+        // Convert toResult to areaGroup result
+        toResult.edgeId = constants.WITHIN_AREA_GROUP_EDGE_ID;
+        toResult.fromPointId = fromAreaGroupId;
+        toResult.toPointId = fromAreaGroupId;
+        // Keep original position for direct pathfinding
+      }
+    }
+
     // Create a copy of the adjacency list
     const tempAdjacencyList = new Map<string, string[]>();
     const tempPaths = new Map<string, THREE.Vector3Like[]>(); // Local temporary storage
@@ -929,7 +974,10 @@ export class Pathfinder {
                     distance,
                     path.path,
                     tempPaths,
-                    constants.createDirectPathKey()
+                    constants.createEdgeWeightKey(
+                      constants.FROM_INTERMEDIATE,
+                      pointId
+                    )
                   );
                 }
               } catch (error) {
@@ -942,9 +990,39 @@ export class Pathfinder {
           });
         }
 
-        // Add reverse connections
+        // Add reverse connections with proper weights
         exitPoints.forEach((pointId) => {
           tempAdjacencyList.get(pointId)!.push(constants.FROM_INTERMEDIATE);
+
+          // Set reverse path weight (same distance, reversed path)
+          const exitPosition = this.getMapPointInternal(pointId);
+          if (exitPosition && navMeshQuery) {
+            try {
+              const fromV3 = new THREE.Vector3().copy(fromResult.position);
+              const exitV3 = new THREE.Vector3().copy(exitPosition);
+
+              const path = navMeshQuery.computePath(exitV3, fromV3);
+              if (path.success && path.path) {
+                const distance = geometry.calculatePathLength(path.path);
+                this.setEdgeWeightAndPath(
+                  pointId,
+                  constants.FROM_INTERMEDIATE,
+                  distance,
+                  path.path,
+                  tempPaths,
+                  constants.createEdgeWeightKey(
+                    pointId,
+                    constants.FROM_INTERMEDIATE
+                  )
+                );
+              }
+            } catch (error) {
+              console.error(
+                `Failed to compute reverse path from exit point ${pointId}:`,
+                error
+              );
+            }
+          }
         });
       }
     } else {
@@ -1010,7 +1088,10 @@ export class Pathfinder {
                     distance,
                     path.path,
                     tempPaths,
-                    constants.createDirectPathKey()
+                    constants.createEdgeWeightKey(
+                      pointId,
+                      constants.TO_INTERMEDIATE
+                    )
                   );
                 }
               } catch (error) {
@@ -1023,9 +1104,39 @@ export class Pathfinder {
           });
         }
 
-        // Add reverse connections
+        // Add reverse connections with proper weights
         exitPoints.forEach((pointId) => {
           tempAdjacencyList.get(pointId)!.push(constants.TO_INTERMEDIATE);
+
+          // Set reverse path weight (same distance, reversed path)
+          const exitPosition = this.getMapPointInternal(pointId);
+          if (exitPosition && navMeshQuery) {
+            try {
+              const toV3 = new THREE.Vector3().copy(toResult.position);
+              const exitV3 = new THREE.Vector3().copy(exitPosition);
+
+              const path = navMeshQuery.computePath(toV3, exitV3);
+              if (path.success && path.path) {
+                const distance = geometry.calculatePathLength(path.path);
+                this.setEdgeWeightAndPath(
+                  constants.TO_INTERMEDIATE,
+                  pointId,
+                  distance,
+                  path.path,
+                  tempPaths,
+                  constants.createEdgeWeightKey(
+                    constants.TO_INTERMEDIATE,
+                    pointId
+                  )
+                );
+              }
+            } catch (error) {
+              console.error(
+                `Failed to compute reverse path from exit point ${pointId}:`,
+                error
+              );
+            }
+          }
         });
       }
     } else {
@@ -1067,12 +1178,60 @@ export class Pathfinder {
           const fromV3 = new THREE.Vector3().copy(fromResult.position);
           const toV3 = new THREE.Vector3().copy(toResult.position);
 
-          const path = navMeshQuery.computePath(fromV3, toV3);
+          let path = navMeshQuery.computePath(fromV3, toV3);
           console.log("Direct areaGroup path result:", {
             success: path.success,
             pathLength: path.path?.length,
             hasPath: !!path.path,
+            fromPosition: fromV3,
+            toPosition: toV3,
+            error: path.error,
           });
+
+          // If path failed, try finding nearest points on NavMesh first
+          if (!path.success) {
+            console.log("Path failed, trying nearest points on NavMesh");
+            const fromNearest = navMeshQuery.findClosestPoint(fromV3, {
+              halfExtents: new THREE.Vector3(5, 5, 5),
+            });
+            const toNearest = navMeshQuery.findClosestPoint(toV3, {
+              halfExtents: new THREE.Vector3(5, 5, 5),
+            });
+
+            const fromDistance = fromV3.distanceTo(
+              new THREE.Vector3().copy(fromNearest.point)
+            );
+            const toDistance = toV3.distanceTo(
+              new THREE.Vector3().copy(toNearest.point)
+            );
+            console.log(
+              "Path failed, trying nearest points on NavMesh",
+              fromNearest,
+              toNearest,
+              fromV3,
+              toV3,
+              fromDistance,
+              toDistance
+            );
+
+            if (
+              fromNearest.success &&
+              fromNearest.point &&
+              toNearest.success &&
+              toNearest.point
+            ) {
+              console.log("Found nearest points, retrying path");
+              path = navMeshQuery.computePath(
+                fromNearest.point,
+                toNearest.point
+              );
+              console.log("Retry result:", {
+                success: path.success,
+                pathLength: path.path?.length,
+                hasPath: !!path.path,
+              });
+            }
+          }
 
           if (path.success && path.path) {
             const directDistance = geometry.calculatePathLength(path.path);
