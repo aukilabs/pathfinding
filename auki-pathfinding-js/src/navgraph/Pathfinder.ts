@@ -13,6 +13,7 @@ import * as graphUtils from "./GraphUtils";
 import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
+import { initialize } from "../wasm";
 const { createEdgeWeightKey } = constants;
 const { addAdjacency, computeNavMeshPathAndConnect, getNearestPositionOnEdge } =
   graphUtils;
@@ -29,7 +30,7 @@ export class Pathfinder {
   private _adjacencies: Map<string, string[]> = new Map();
   private _edgeWeights: Map<string, EdgeWeightInfo[]> = new Map();
 
-  private _areaMeshes: Record<string, THREE.Mesh> = {};
+  private _areaMeshes: Map<string, THREE.Mesh> = new Map();
 
   // AreaGroup system for grouping adjacent areas
   private _areaGroups: Map<string, string[]> = new Map(); // areaGroupId -> areaIds[]
@@ -105,13 +106,17 @@ export class Pathfinder {
     return this._map?.points[pointId] || null;
   }
 
-  async load(map: NavMap, legacyNavmesh: THREE.Mesh[]) {
+  initialize() {
+    return init();
+  }
+
+  load(map: NavMap, legacyNavmesh: THREE.Mesh[]) {
     this.isLoaded = false;
     this.cleanUp();
 
     this._map = map;
     this._legacyMeshes = legacyNavmesh;
-    await init();
+
     this.initializeMapAreas();
     this.buildAreaGroups();
     this.initializeLegacyAreaNavMeshes();
@@ -144,17 +149,20 @@ export class Pathfinder {
         console.error("failed to create mesh for area");
         continue;
       }
-      this._areaMeshes[areaId] = mesh;
+      this._areaMeshes.set(areaId, mesh);
     }
   }
 
   private cleanUp() {
+    console.log("Cleaning up pathfinder");
     this._adjacencies.clear();
     this._edgeWeights.clear();
     this._legacyNavMesh?.destroy();
     this._legacyNavMesh = null;
     this._legacyNavMeshQuery?.destroy();
     this._legacyNavMeshQuery = null;
+    this._areaMeshes.forEach((mesh) => mesh.geometry.dispose());
+    this._areaMeshes.clear();
     this._areaGroupNavMeshes.forEach((navMesh) => navMesh.destroy());
     this._areaGroupNavMeshes.clear();
     this._areaGroupNMQueries.forEach((query) => query.destroy());
@@ -882,7 +890,7 @@ export class Pathfinder {
       const areaMeshes: THREE.Mesh[] = [];
 
       for (const areaId of areaIds) {
-        const areaMesh = this._areaMeshes[areaId];
+        const areaMesh = this._areaMeshes.get(areaId);
         if (areaMesh) {
           areaMeshes.push(areaMesh);
         }

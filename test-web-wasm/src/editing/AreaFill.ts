@@ -433,13 +433,61 @@ function findEdgeChainsCuttingPolygon(
       );
 
       if (path && path.length > 1) {
-        // This is a cutting chain
-        cuttingChains.push(path);
+        // Validate that this path actually cuts THROUGH the polygon
+        if (edgeChainCutsThroughPolygon(state, path, polygonEdges)) {
+          cuttingChains.push(path);
+        }
       }
     }
   }
 
   return cuttingChains;
+}
+
+function edgeChainCutsThroughPolygon(
+  state: NavMap,
+  edgeChain: string[],
+  polygonEdges: string[]
+): boolean {
+  if (edgeChain.length === 0) return false;
+
+  // Get polygon points for point-in-polygon testing
+  const polygonPoints = getPolygonPointsFromEdges(state, polygonEdges);
+  if (polygonPoints.length < 3) return false;
+
+  // Check if any point of the edge chain is outside the polygon
+  for (let i = 0; i < edgeChain.length; i++) {
+    const edge = state.edges[edgeChain[i]];
+    if (!edge) continue;
+
+    // Test the midpoint of this edge
+    const fromPoint = state.points[edge.from];
+    const toPoint = state.points[edge.to];
+
+    if (!fromPoint || !toPoint) continue;
+
+    // Calculate midpoint
+    const midpoint = new THREE.Vector3(
+      (fromPoint.x + toPoint.x) / 2,
+      (fromPoint.y + toPoint.y) / 2,
+      (fromPoint.z + toPoint.z) / 2
+    );
+
+    // If midpoint is outside polygon, this chain cuts through
+    if (!isPointInPolygon(midpoint, polygonPoints)) {
+      console.log(
+        "Edge chain cuts through polygon (there is a midpoint outside):",
+        edgeChain
+      );
+      return false;
+    }
+  }
+
+  console.log(
+    "Edge chain goes is in polygon (all midpoints inside):",
+    edgeChain
+  );
+  return true;
 }
 
 function findShortestPathAvoidingEdges(

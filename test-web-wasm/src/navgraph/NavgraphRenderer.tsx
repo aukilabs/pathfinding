@@ -44,19 +44,25 @@ export default function NavgraphRenderer({}: {}) {
     }
   }, []);
 
+  const [pathfinderInitialized, setPathfinderInitialized] = useState(false);
   const pathfinder = useMemo(() => {
-    return new Pathfinder({ maxOffGraphDistance: 10 });
+    const pathfinder = new Pathfinder({ maxOffGraphDistance: 10 });
+    pathfinder.initialize().then(() => {
+      setPathfinderInitialized(true);
+    });
+    return pathfinder;
   }, []);
 
   useEffect(() => {
     const asyncLoad = async () => {
       console.log("Loading pathfinder");
-      await pathfinder.load(editor.crdt.state, legacyNavmeshMeshes);
+      if (!pathfinderInitialized) return;
+      pathfinder.load(editor.crdt.state, legacyNavmeshMeshes);
       //kickstart the first pathfinding
       setStart({ ...start });
     };
     asyncLoad();
-  }, [editor.crdt.state, legacyNavmeshMeshes]);
+  }, [editor.crdt.state, legacyNavmeshMeshes, pathfinderInitialized]);
 
   const handlePointClick = useCallback(
     (pointId: string, event: React.MouseEvent) => {
@@ -450,7 +456,7 @@ export default function NavgraphRenderer({}: {}) {
       )}
       {displayState.showAreas && (
         <group name="area-meshes">
-          {Object.entries(pathfinder.areaMeshes).map(([areaId, mesh]) => {
+          {Array.from(pathfinder.areaMeshes.entries()).map(([areaId, mesh]) => {
             return (
               <group key={areaId}>
                 <primitive object={mesh} onPointerOver={() => {}}>
