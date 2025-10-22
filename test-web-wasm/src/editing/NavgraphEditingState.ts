@@ -126,7 +126,6 @@ export const useNavgraphEditingState = create<{
 
     // First check if we're clicking on an existing area
     const existingArea = findExistingAreaContainingPoint(state, clickPoint);
-    console.log("Existing area:", existingArea);
     if (existingArea) {
       // Delete the existing area
       const operation = {
@@ -152,6 +151,7 @@ export const useNavgraphEditingState = create<{
           area: { edges: smallestUnfilledArea.edges },
         },
       };
+      console.log("Creating new area:", operation);
       const newCRDT = applyOperation(get().crdt, operation);
       set({ crdt: newCRDT });
     }
