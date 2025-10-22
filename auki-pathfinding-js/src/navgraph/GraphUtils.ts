@@ -271,3 +271,48 @@ export function computeNavMeshPathAndConnect(
   }
   return false;
 }
+
+export function buildEdgeAdjacencies(
+  map: NavMap,
+  adjacencyList: Map<string, string[]>,
+  edgeWeights: Map<string, EdgeWeightInfo[]>
+) {
+  if (!map) return;
+
+  // Build connections and calculate weights
+  Object.entries(map.edges).forEach(([edgeId, edge]) => {
+    const fromPoint = map.points[edge.from];
+    const toPoint = map.points[edge.to];
+
+    if (!fromPoint || !toPoint) {
+      return;
+    }
+
+    // Calculate edge weight (distance)
+    let weight = geometry.calculateDistance(fromPoint, toPoint);
+
+    // Apply weight multiplier if specified
+    const weightMultiplier = edge.weightMultiplier;
+    if (weightMultiplier !== undefined) {
+      weight *= weightMultiplier;
+    }
+
+    const doTo = edge.dir === undefined || edge.dir === 0 || edge.dir === 1;
+    const doFrom = edge.dir === undefined || edge.dir === 0 || edge.dir === -1;
+
+    if (doTo) {
+      // One-way edge - only add from -> to connection
+      addAdjacency(adjacencyList, edgeWeights, edge.from, edge.to, false, {
+        weight,
+        path: [fromPoint, toPoint],
+      });
+    }
+    if (doFrom) {
+      // One-way-reverse edge - only add to -> from connection
+      addAdjacency(adjacencyList, edgeWeights, edge.to, edge.from, false, {
+        weight,
+        path: [toPoint, fromPoint],
+      });
+    }
+  });
+}

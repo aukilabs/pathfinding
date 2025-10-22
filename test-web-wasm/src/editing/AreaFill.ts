@@ -63,6 +63,15 @@ export function findSmallestPolygonContainingPoint(
   state: NavMap,
   clickPoint: THREE.Vector3
 ): string[] | null {
+  console.log("================================================");
+  const splitTest = splitPolygonWithEdge(
+    state,
+    ["e58", "e59", "e50", "e45"],
+    ["e57"]
+  );
+
+  console.log("================================================");
+
   // First, find any polygon that contains the point
   const initialPolygon = findPolygonContainingPoint(state, clickPoint);
   console.log(
@@ -216,6 +225,48 @@ function getPolygonPointsFromEdges(
   return polygonPoints;
 }
 
+function findPointIdByPosition(
+  state: NavMap,
+  position: THREE.Vector3
+): string | null {
+  for (const [pointId, point] of Object.entries(state.points)) {
+    if (
+      Math.abs(point.x - position.x) < 0.001 &&
+      Math.abs(point.z - position.z) < 0.001
+    ) {
+      return pointId;
+    }
+  }
+  return null;
+}
+
+function pointsToEdges(state: NavMap, points: THREE.Vector3[]): string[] {
+  const edges: string[] = [];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const currentPoint = points[i];
+    const nextPoint = points[i + 1];
+
+    const currentId = findPointIdByPosition(state, currentPoint);
+    const nextId = findPointIdByPosition(state, nextPoint);
+
+    if (currentId && nextId) {
+      // Find the edge between these two points
+      for (const [edgeId, edge] of Object.entries(state.edges)) {
+        if (
+          (edge.from === currentId && edge.to === nextId) ||
+          (edge.from === nextId && edge.to === currentId)
+        ) {
+          edges.push(edgeId);
+          break;
+        }
+      }
+    }
+  }
+
+  return edges;
+}
+
 function splitPolygonWithEdge(
   state: NavMap,
   polygonEdges: string[],
@@ -241,47 +292,100 @@ function splitPolygonWithEdge(
     cuttingTo
   );
 
-  // Find the indices of the cutting edge chain endpoints in the polygon
+  // Convert polygon edges to points
+  const polygonPoints = getPolygonPointsFromEdges(state, polygonEdges);
+  console.log(
+    "Polygon points:",
+    polygonPoints.map((p) => `${p.x},${p.z}`)
+  );
+
+  // Find the indices of the cutting points in the polygon
   let fromIndex = -1;
   let toIndex = -1;
 
-  for (let i = 0; i < polygonEdges.length; i++) {
-    const edge = state.edges[polygonEdges[i]];
-    if (!edge) continue;
+  for (let i = 0; i < polygonPoints.length; i++) {
+    const point = polygonPoints[i];
+    const pointId = findPointIdByPosition(state, point);
 
-    // Check if this edge connects to the cutting edge chain endpoints
-    if (edge.from === cuttingFrom || edge.to === cuttingFrom) {
+    if (pointId === cuttingFrom) {
       fromIndex = i;
     }
-    if (edge.from === cuttingTo || edge.to === cuttingTo) {
+    if (pointId === cuttingTo) {
       toIndex = i;
     }
   }
+
+  console.log("Found point indices:", fromIndex, toIndex);
 
   if (fromIndex === -1 || toIndex === -1) {
     console.log("Cutting edge chain endpoints not found in polygon");
     return [polygonEdges];
   }
 
-  // Ensure fromIndex comes before toIndex
-  if (fromIndex > toIndex) {
-    [fromIndex, toIndex] = [toIndex, fromIndex];
+  // Split the polygon points at the cutting points
+  let polygon1Points: THREE.Vector3[];
+  let polygon2Points: THREE.Vector3[];
+
+  if (fromIndex < toIndex) {
+    // Normal case: fromIndex comes before toIndex
+    polygon1Points = polygonPoints.slice(fromIndex, toIndex + 1);
+    polygon2Points = [
+      ...polygonPoints.slice(toIndex),
+      ...polygonPoints.slice(0, fromIndex + 1),
+    ];
+  } else {
+    // Wrapped case: toIndex comes before fromIndex
+    polygon1Points = [...polygonPoints.slice(toIndex, fromIndex + 1)];
+    polygon2Points = [
+      ...polygonPoints.slice(fromIndex),
+      ...polygonPoints.slice(0, toIndex + 1),
+    ];
   }
 
-  // Create two polygons by splitting the edge sequence
-  const polygon1 = polygonEdges.slice(fromIndex, toIndex + 1);
-  const polygon2 = [
-    ...polygonEdges.slice(toIndex),
-    ...polygonEdges.slice(0, fromIndex + 1),
-  ];
+  console.log(
+    "Polygon 1 points:",
+    polygon1Points.map((p) => `${p.x},${p.z}`)
+  );
+  console.log(
+    "Polygon 2 points:",
+    polygon2Points.map((p) => `${p.x},${p.z}`)
+  );
 
-  // Add the cutting edge chain to both polygons
+  // Convert points back to edges
   const result = [];
-  if (polygon1.length >= 2) {
-    result.push([...polygon1, ...cuttingEdgeChain]);
+  if (polygon1Points.length >= 3) {
+    const polygon1Edges = pointsToEdges(state, polygon1Points);
+    console.log("Polygon 1 edges:", polygon1Edges);
+
+    // Check if cutting edge chain needs to be reversed for this polygon
+    const polygon1LastPoint = polygon1Points[polygon1Points.length - 1];
+    const polygon1LastPointId = findPointIdByPosition(state, polygon1LastPoint);
+    const cuttingEdgeStart = state.edges[cuttingEdgeChain[0]];
+
+    let cuttingChainForPolygon1 = cuttingEdgeChain;
+    if (cuttingEdgeStart && polygon1LastPointId !== cuttingEdgeStart.from) {
+      // Need to reverse the cutting edge chain
+      cuttingChainForPolygon1 = [...cuttingEdgeChain].reverse();
+    }
+
+    result.push([...polygon1Edges, ...cuttingChainForPolygon1]);
   }
-  if (polygon2.length >= 2) {
-    result.push([...polygon2, ...cuttingEdgeChain]);
+  if (polygon2Points.length >= 3) {
+    const polygon2Edges = pointsToEdges(state, polygon2Points);
+    console.log("Polygon 2 edges:", polygon2Edges);
+
+    // Check if cutting edge chain needs to be reversed for this polygon
+    const polygon2LastPoint = polygon2Points[polygon2Points.length - 1];
+    const polygon2LastPointId = findPointIdByPosition(state, polygon2LastPoint);
+    const cuttingEdgeStart = state.edges[cuttingEdgeChain[0]];
+
+    let cuttingChainForPolygon2 = cuttingEdgeChain;
+    if (cuttingEdgeStart && polygon2LastPointId !== cuttingEdgeStart.from) {
+      // Need to reverse the cutting edge chain
+      cuttingChainForPolygon2 = [...cuttingEdgeChain].reverse();
+    }
+
+    result.push([...polygon2Edges, ...cuttingChainForPolygon2]);
   }
 
   console.log("Split result:", result);
@@ -418,13 +522,22 @@ function findEdgeChainsCuttingPolygon(
 ): string[][] {
   const cuttingChains: string[][] = [];
 
-  // For each pair of polygon points, see if there's a path between them
-  // that doesn't use polygon edges
-  for (const pointA of polygonPoints) {
-    for (const pointB of polygonPoints) {
-      if (pointA === pointB) continue;
+  // Only look for paths between non-adjacent polygon points
+  // Adjacent points would just go around the edge
+  const polygonPointArray = Array.from(polygonPoints);
 
-      // Find shortest path between these points that avoids polygon edges
+  for (let i = 0; i < polygonPointArray.length; i++) {
+    for (let j = i + 2; j < polygonPointArray.length; j++) {
+      const pointA = polygonPointArray[i];
+      const pointB = polygonPointArray[j];
+
+      // Skip if these points are adjacent in the polygon
+      if (arePointsAdjacentInPolygon(state, pointA, pointB, polygonEdges)) {
+        continue;
+      }
+
+      console.log("Finding shortest path from", pointA, "to", pointB);
+      // Find shortest path between these non-adjacent points
       const path = findShortestPathAvoidingEdges(
         state,
         pointA,
@@ -433,15 +546,49 @@ function findEdgeChainsCuttingPolygon(
       );
 
       if (path && path.length > 1) {
-        // Validate that this path actually cuts THROUGH the polygon
-        if (edgeChainCutsThroughPolygon(state, path, polygonEdges)) {
-          cuttingChains.push(path);
+        console.log("Path found from", pointA, "to", pointB, ":", path);
+
+        // Verify the path actually connects the points
+        const firstEdge = state.edges[path[0]];
+        const lastEdge = state.edges[path[path.length - 1]];
+        console.log("First edge:", firstEdge, "Last edge:", lastEdge);
+
+        if (!firstEdge || !lastEdge) {
+          console.log("Invalid path - missing edges");
+          continue;
+        }
+
+        if (
+          (firstEdge.from == pointA || firstEdge.to == pointB) &&
+          (lastEdge.from == pointB || lastEdge.to == pointB)
+        ) {
+          if (edgeChainCutsThroughPolygon(state, path, polygonEdges)) {
+            cuttingChains.push(path);
+          }
+        } else {
+          console.log("Path doesn't connect the requested points!");
         }
       }
     }
   }
-
   return cuttingChains;
+}
+
+function arePointsAdjacentInPolygon(
+  state: NavMap,
+  pointA: string,
+  pointB: string,
+  polygonEdges: string[]
+): boolean {
+  // Check if there's a direct edge between these points in the polygon
+  return polygonEdges.some((edgeId) => {
+    const edge = state.edges[edgeId];
+    return (
+      edge &&
+      ((edge.from === pointA && edge.to === pointB) ||
+        (edge.from === pointB && edge.to === pointA))
+    );
+  });
 }
 
 function edgeChainCutsThroughPolygon(
@@ -473,10 +620,10 @@ function edgeChainCutsThroughPolygon(
       (fromPoint.z + toPoint.z) / 2
     );
 
-    // If midpoint is outside polygon, this chain cuts through
+    // If midpoint is outside polygon, this chain goes around
     if (!isPointInPolygon(midpoint, polygonPoints)) {
       console.log(
-        "Edge chain cuts through polygon (there is a midpoint outside):",
+        "Edge chain goes around polygon (midpoint outside):",
         edgeChain
       );
       return false;
@@ -484,7 +631,7 @@ function edgeChainCutsThroughPolygon(
   }
 
   console.log(
-    "Edge chain goes is in polygon (all midpoints inside):",
+    "Edge chain cuts through polygon (all midpoints inside):",
     edgeChain
   );
   return true;
@@ -496,7 +643,6 @@ function findShortestPathAvoidingEdges(
   toPoint: string,
   avoidEdges: string[]
 ): string[] | null {
-  // Use BFS to find shortest path
   const queue: { point: string; path: string[] }[] = [
     { point: fromPoint, path: [] },
   ];
@@ -509,19 +655,26 @@ function findShortestPathAvoidingEdges(
       // Validate the path - no duplicate edges
       const uniqueEdges = [...new Set(path)];
       if (uniqueEdges.length !== path.length) {
-        console.log("Found path with duplicate edges, skipping:", path);
         continue;
       }
       return path;
     }
 
-    // Find all edges connected to this point
-    for (const [edgeId, edge] of Object.entries(state.edges)) {
-      if (avoidEdges.includes(edgeId)) continue; // Skip polygon edges
-      if (path.includes(edgeId)) continue; // Avoid cycles in path
+    // Construct neighbors first - only edges actually connected to this point
+    const neighbors = Object.entries(state.edges).filter(
+      ([edgeId, edge]) =>
+        (edge.from === point || edge.to === point) &&
+        !avoidEdges.includes(edgeId) &&
+        !path.includes(edgeId)
+    );
 
+    // Now only process the actual neighbors
+    for (const [edgeId, edge] of neighbors) {
       const nextPoint = edge.from === point ? edge.to : edge.from;
-      if (visited.has(nextPoint)) continue;
+
+      if (visited.has(nextPoint)) {
+        continue;
+      }
 
       visited.add(nextPoint);
       queue.push({ point: nextPoint, path: [...path, edgeId] });
