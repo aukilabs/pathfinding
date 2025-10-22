@@ -8,6 +8,7 @@ import {
 } from "./CRDT";
 import { TestNavData } from "../navgraph/TestNavGraph";
 import * as THREE from "three";
+import { findSmallestUnfilledAreaContainingPoint } from "./AreaFill";
 
 type EdgeDrawingState = { isDrawing: boolean; firstPoint: string | null };
 type DragState = {
@@ -15,8 +16,7 @@ type DragState = {
   draggedPoint: string | null;
   startPosition: THREE.Vector3 | null;
 };
-type EditingTool = "select" | "addPoint" | "drawEdge";
-type EditingAction = "fillArea" | null;
+type EditingTool = "select" | "addPoint" | "drawEdge" | "fillArea";
 
 export const useNavgraphEditingState = create<{
   currentTool: EditingTool;
@@ -40,9 +40,7 @@ export const useNavgraphEditingState = create<{
   clearSelection: () => void;
   undo: () => void;
   redo: () => void;
-  fillArea: (pointIds: string[]) => void;
-  detectClosedArea: (pointIds: string[]) => string[] | null;
-  performAction: (action: EditingAction | null) => void;
+  fillAreaByClick: (clickPoint: THREE.Vector3) => void;
 }>((set, get) => ({
   currentTool: "select",
   setCurrentTool: (tool: EditingTool) =>
@@ -119,71 +117,23 @@ export const useNavgraphEditingState = create<{
     const newCRDT = redo(get().crdt);
     set({ crdt: newCRDT });
   },
-  detectClosedArea: (pointIds: string[]) => {
-    // Find a closed loop through the selected points and return the edge IDs
-    const navMap = get().crdt.state;
-    const visited = new Set<string>();
 
-    const dfs = (
-      current: string,
-      start: string,
-      path: string[],
-      edgePath: string[]
-    ): string[] | null => {
-      if (visited.has(current)) return null;
-      visited.add(current);
-
-      const connectedEdges = Object.entries(navMap.edges)
-        .filter(([_, edge]) => edge.from === current || edge.to === current)
-        .filter(([edgeId, edge]) => {
-          const neighbor = edge.from === current ? edge.to : edge.from;
-          return pointIds.includes(neighbor);
-        });
-
-      for (const [edgeId, edge] of connectedEdges) {
-        const neighbor = edge.from === current ? edge.to : edge.from;
-        if (neighbor === start && path.length > 2) {
-          return [...edgePath, edgeId];
-        }
-        const result = dfs(
-          neighbor,
-          start,
-          [...path, neighbor],
-          [...edgePath, edgeId]
-        );
-        if (result) return result;
-      }
-
-      return null;
-    };
-
-    for (const pointId of pointIds) {
-      visited.clear();
-      const result = dfs(pointId, pointId, [pointId], []);
-      if (result) return result;
-    }
-
-    return null;
-  },
-
-  fillArea: (pointIds: string[]) => {
-    if (pointIds.length < 3) return; // Minimum 3 points for area
-    const closedEdgePath = get().detectClosedArea(pointIds);
-    console.log("Closed edge path:", closedEdgePath);
-    if (closedEdgePath) {
-      const areaId = `a${Date.now()}`;
+  fillAreaByClick: (clickPoint: THREE.Vector3) => {
+    const state = get().crdt.state;
+    const smallestUnfilledArea = findSmallestUnfilledAreaContainingPoint(
+      state,
+      clickPoint
+    );
+    if (smallestUnfilledArea) {
       const operation = {
         type: "setArea" as const,
-        data: { id: areaId, area: { edges: closedEdgePath } },
+        data: {
+          id: `a${Date.now()}`,
+          area: { edges: smallestUnfilledArea.edges },
+        },
       };
       const newCRDT = applyOperation(get().crdt, operation);
-      set({ crdt: newCRDT, selectedPoints: new Set() });
-      console.log("Area filled with edges:", closedEdgePath);
-    }
-  },
-  performAction: (action: EditingAction | null) => {
-    if (action === "fillArea") {
-      get().fillArea(Array.from(get().selectedPoints));
+      set({ crdt: newCRDT });
     }
   },
 }));

@@ -64,6 +64,7 @@ export const TestNavData: NavMap = {
     e56: { from: "p47", to: "p45" },
     e57: { from: "p37", to: "p42" },
     e58: { from: "p37", to: "p49" },
+    e59: { from: "p49", to: "p42" },
   },
   areas: {
     a3: {

@@ -115,15 +115,22 @@ export default function NavgraphRenderer({}: {}) {
 
   const handleEmptySpaceClick = useCallback(
     (event: React.MouseEvent) => {
-      if (editor.currentTool !== "addPoint") return;
-
       // Get 3D coordinates from the click
       const intersection = getIntersectionFromClick(event);
-      if (intersection) {
+      if (!intersection) return;
+
+      if (editor.currentTool === "addPoint") {
         editor.addPoint(intersection);
+      } else if (editor.currentTool === "fillArea") {
+        editor.fillAreaByClick(intersection);
       }
     },
-    [editor.currentTool, editor.addPoint]
+    [
+      editor.currentTool,
+      editor.addPoint,
+      editor.fillAreaByClick,
+      getIntersectionFromClick,
+    ]
   );
 
   useEffect(() => {

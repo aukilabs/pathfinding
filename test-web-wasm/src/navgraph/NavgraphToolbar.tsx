@@ -27,12 +27,9 @@ export default function NavgraphToolbar() {
       label: "Draw Edge",
       tool: "drawEdge",
     },
-  ] as const;
-
-  const actions = [
     {
       label: "Fill Area",
-      action: "fillArea",
+      tool: "fillArea",
     },
   ] as const;
 
@@ -144,17 +141,6 @@ export default function NavgraphToolbar() {
                 onPress={() => editingState.setCurrentTool(tool.tool)}
               >
                 {tool.label}
-              </Button>
-            ))}
-          </div>
-          <div className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
-            {actions.map((action) => (
-              <Button
-                key={action.action}
-                className="px-3 py-1 rounded bg-gray-200"
-                onPress={() => editingState.performAction(action.action)}
-              >
-                {action.label}
               </Button>
             ))}
           </div>
