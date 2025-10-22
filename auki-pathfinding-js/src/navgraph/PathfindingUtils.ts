@@ -1,6 +1,4 @@
 import * as THREE from "three";
-import { NavMeshQuery } from "recast-navigation";
-import * as constants from "./Constants";
 import {
   PathResult,
   EdgePathResult,
@@ -19,21 +17,8 @@ export function chooseClosestResult(
   legacyResult: {
     position: THREE.Vector3Like;
     distance: number;
-  } | null,
-  inAreaGroupResult: {
-    areaGroupId: string;
-    position: THREE.Vector3Like;
   } | null
 ): PathResult | null {
-  if (inAreaGroupResult) {
-    return {
-      type: "areaGroup",
-      position: inAreaGroupResult.position,
-      areaGroupId: inAreaGroupResult.areaGroupId,
-      distance: 0,
-    } as AreaGroupPathResult;
-  }
-
   if (!edgeResult && !legacyResult) return null;
   if (!edgeResult) return convertLegacyToPathResult(legacyResult);
   if (!legacyResult) return convertEdgeToPathResult(edgeResult);
@@ -42,6 +27,18 @@ export function chooseClosestResult(
   return legacyResult.distance < edgeResult.distance
     ? convertLegacyToPathResult(legacyResult)
     : convertEdgeToPathResult(edgeResult);
+}
+
+export function convertAreaGroupToPathResult(
+  areaGroupId: string,
+  position: THREE.Vector3Like
+): AreaGroupPathResult {
+  return {
+    type: "areaGroup",
+    position: position,
+    areaGroupId: areaGroupId,
+    distance: 0,
+  };
 }
 
 function convertLegacyToPathResult(legacyResult: any): LegacyPathResult {

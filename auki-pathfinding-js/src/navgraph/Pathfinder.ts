@@ -14,7 +14,9 @@ import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
 const { createEdgeWeightKey } = constants;
-const { addAdjacency, computeNavMeshPathAndConnect } = graphUtils;
+const { addAdjacency, computeNavMeshPathAndConnect, getNearestPositionOnEdge } =
+  graphUtils;
+const { getNavmeshUnderPoint, findClosestPoint } = recastUtils;
 
 export type NavOptions = {
   maxDistance?: number;
@@ -32,7 +34,7 @@ export class Pathfinder {
   // AreaGroup system for grouping adjacent areas
   private _areaGroups: Map<string, string[]> = new Map(); // areaGroupId -> areaIds[]
   private _areaGroupNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areaGroups
-  private _areaGroupNavMeshQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areaGroups
+  private _areaGroupNMQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areaGroups
 
   private _legacyMeshes: THREE.Mesh[] = [];
   private _legacyNavMesh: NavMesh | null = null;
@@ -155,8 +157,8 @@ export class Pathfinder {
     this._legacyNavMeshQuery = null;
     this._areaGroupNavMeshes.forEach((navMesh) => navMesh.destroy());
     this._areaGroupNavMeshes.clear();
-    this._areaGroupNavMeshQueries.forEach((query) => query.destroy());
-    this._areaGroupNavMeshQueries.clear();
+    this._areaGroupNMQueries.forEach((query) => query.destroy());
+    this._areaGroupNMQueries.clear();
   }
 
   setConfig(config: NavOptions) {
@@ -339,41 +341,8 @@ export class Pathfinder {
       return null;
     }
 
-    // Find nearest positions on traditional edges
-    const fromEdgeResult = graphUtils.getNearestPositionOnEdge(this._map, from);
-    const toEdgeResult = graphUtils.getNearestPositionOnEdge(this._map, to);
-
-    // Find nearest positions on legacy NavMesh
-    const fromLegacyResult = recastUtils.getNearestPositionOnNavMesh(
-      this._legacyNavMeshQuery,
-      from
-    );
-    const toLegacyResult = recastUtils.getNearestPositionOnNavMesh(
-      this._legacyNavMeshQuery,
-      to
-    );
-
-    const fromAreaResult = recastUtils.getNavmeshUnderPoint(
-      from,
-      this._areaGroupNavMeshQueries
-    );
-    const toAreaResult = recastUtils.getNavmeshUnderPoint(
-      to,
-      this._areaGroupNavMeshQueries
-    );
-
-    // Use unified pathfinding logic for all cases
-    const fromResult = pathfinding.chooseClosestResult(
-      fromEdgeResult,
-      fromLegacyResult,
-      fromAreaResult ? { areaGroupId: fromAreaResult, position: from } : null
-    );
-    const toResult = pathfinding.chooseClosestResult(
-      toEdgeResult,
-      toLegacyResult,
-      toAreaResult ? { areaGroupId: toAreaResult, position: to } : null
-    );
-
+    const fromResult = this.getPathResult(from);
+    const toResult = this.getPathResult(to);
     if (!fromResult || !toResult) {
       return null;
     }
@@ -419,6 +388,16 @@ export class Pathfinder {
 
       tempEdgeWeights
     );
+  }
+
+  private getPathResult(position: THREE.Vector3Like): PathResult | null {
+    const areaId = getNavmeshUnderPoint(position, this._areaGroupNMQueries);
+    if (areaId) {
+      return pathfinding.convertAreaGroupToPathResult(areaId, position);
+    }
+    const edge = getNearestPositionOnEdge(this._map, position);
+    const legacy = findClosestPoint(this._legacyNavMeshQuery, position);
+    return pathfinding.chooseClosestResult(edge, legacy);
   }
 
   private convertGraphPathToWorldPath(
@@ -643,18 +622,12 @@ export class Pathfinder {
     const fromEdgeId = fromResult.type === "edge" ? fromResult.edgeId : "";
     const toEdgeId = toResult.type === "edge" ? toResult.edgeId : "";
 
-    const fromEdgeAreaGroups = fromIsLegacyEdge
-      ? []
-      : this.getAreaGroupsContainingEdge(fromEdgeId);
-    const toEdgeAreaGroups = toIsLegacyEdge
-      ? []
-      : this.getAreaGroupsContainingEdge(toEdgeId);
+    const fromEdgeAreaGroups = this.getAreaGroupsContainingEdge(fromEdgeId);
+    const toEdgeAreaGroups = this.getAreaGroupsContainingEdge(toEdgeId);
 
     // Add connections from existing nodes to intermediate points
-    const fromIsAreaEdge = fromIsLegacyEdge
-      ? false
-      : fromEdgeAreaGroups.length > 0;
-    const toIsAreaEdge = toIsLegacyEdge ? false : toEdgeAreaGroups.length > 0;
+    const fromIsAreaEdge = fromEdgeAreaGroups.length > 0;
+    const toIsAreaEdge = toEdgeAreaGroups.length > 0;
 
     // Determine the appropriate NavMesh query for direct connections
     let directNavMeshQuery: NavMeshQuery | null = null;
@@ -668,8 +641,7 @@ export class Pathfinder {
       fromResult.areaGroupId === toResult.areaGroupId
     ) {
       const areaGroupId = fromResult.areaGroupId;
-      directNavMeshQuery =
-        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
     }
     // Mixed case: from off-mesh, to in areaGroup, but same areaGroup
     else if (
@@ -678,8 +650,7 @@ export class Pathfinder {
       fromEdgeAreaGroups.includes(toResult.areaGroupId)
     ) {
       const areaGroupId = toResult.areaGroupId;
-      directNavMeshQuery =
-        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
     }
     // Mixed case: to off-mesh, from in areaGroup, but same areaGroup
     else if (
@@ -688,8 +659,7 @@ export class Pathfinder {
       toEdgeAreaGroups.includes(fromResult.areaGroupId)
     ) {
       const areaGroupId = fromResult.areaGroupId;
-      directNavMeshQuery =
-        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
     }
     // Both 'from' and 'to' are on legacy NavMesh
     else if (fromIsLegacyEdge && toIsLegacyEdge) {
@@ -702,8 +672,7 @@ export class Pathfinder {
       fromEdgeAreaGroups[0] === toEdgeAreaGroups[0]
     ) {
       const areaGroupId = fromEdgeAreaGroups[0];
-      directNavMeshQuery =
-        this._areaGroupNavMeshQueries.get(areaGroupId) || null;
+      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
     }
 
     // Execute direct connection if we found a suitable NavMesh query
@@ -733,7 +702,7 @@ export class Pathfinder {
     areaGroupId: string
   ): void {
     if (areaGroupId) {
-      const navMeshQuery = this._areaGroupNavMeshQueries.get(areaGroupId);
+      const navMeshQuery = this._areaGroupNMQueries.get(areaGroupId);
       // Get true exit points for this areaGroup
       const exitPoints = graphUtils.findExitPointsForGroup(
         this._map,
@@ -930,7 +899,7 @@ export class Pathfinder {
           this._areaGroupNavMeshes.set(groupId, nmResult.navMesh);
 
           const navMeshQuery = new NavMeshQuery(nmResult.navMesh);
-          this._areaGroupNavMeshQueries.set(groupId, navMeshQuery);
+          this._areaGroupNMQueries.set(groupId, navMeshQuery);
         }
       } catch (error) {
         console.error(
@@ -945,7 +914,7 @@ export class Pathfinder {
     if (!this._map) return;
 
     for (const [groupId, areaIds] of this._areaGroups) {
-      const navMesh = this._areaGroupNavMeshQueries.get(groupId);
+      const navMesh = this._areaGroupNMQueries.get(groupId);
       if (!navMesh) continue;
 
       // Get true exit points for this areaGroup

@@ -58,7 +58,7 @@ export function isPointOnLegacyNavMesh(
   return false;
 }
 
-export function getNearestPositionOnNavMesh(
+export function findClosestPoint(
   legacyNavMeshQuery: NavMeshQuery | null,
   position: THREE.Vector3Like
 ): {
