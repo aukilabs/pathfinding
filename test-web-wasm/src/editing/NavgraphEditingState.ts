@@ -8,7 +8,10 @@ import {
 } from "./CRDT";
 import { TestNavData } from "../navgraph/TestNavGraph";
 import * as THREE from "three";
-import { findSmallestUnfilledAreaContainingPoint } from "./AreaFill";
+import {
+  findSmallestUnfilledAreaContainingPoint,
+  findExistingAreaContainingPoint,
+} from "./AreaFill";
 
 type EdgeDrawingState = { isDrawing: boolean; firstPoint: string | null };
 type DragState = {
@@ -120,6 +123,23 @@ export const useNavgraphEditingState = create<{
 
   fillAreaByClick: (clickPoint: THREE.Vector3) => {
     const state = get().crdt.state;
+
+    // First check if we're clicking on an existing area
+    const existingArea = findExistingAreaContainingPoint(state, clickPoint);
+    console.log("Existing area:", existingArea);
+    if (existingArea) {
+      // Delete the existing area
+      const operation = {
+        type: "removeArea" as const,
+        data: { id: existingArea.id },
+      };
+      console.log("Removing existing area:", operation);
+      const newCRDT = applyOperation(get().crdt, operation);
+      set({ crdt: newCRDT });
+      return;
+    }
+
+    // Otherwise, try to create a new area
     const smallestUnfilledArea = findSmallestUnfilledAreaContainingPoint(
       state,
       clickPoint

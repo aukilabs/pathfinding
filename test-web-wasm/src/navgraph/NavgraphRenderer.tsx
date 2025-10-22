@@ -26,6 +26,10 @@ export default function NavgraphRenderer({}: {}) {
   const startRef = useRef<THREE.Object3D>(null);
   const endRef = useRef<THREE.Object3D>(null);
 
+  const legacyNavmeshMeshes = useMemo(() => {
+    return createMeshes();
+  }, [createMeshes]);
+
   useEffect(() => {
     console.log("editor.crdt.state", editor.crdt.state);
   }, [editor.crdt.state]);
@@ -46,12 +50,13 @@ export default function NavgraphRenderer({}: {}) {
 
   useEffect(() => {
     const asyncLoad = async () => {
-      await pathfinder.load(editor.crdt.state, createMeshes());
+      console.log("Loading pathfinder");
+      await pathfinder.load(editor.crdt.state, legacyNavmeshMeshes);
       //kickstart the first pathfinding
       setStart({ ...start });
     };
     asyncLoad();
-  }, [editor.crdt.state, createMeshes]);
+  }, [editor.crdt.state, legacyNavmeshMeshes]);
 
   const handlePointClick = useCallback(
     (pointId: string, event: React.MouseEvent) => {

@@ -33,6 +33,32 @@ export function findSmallestUnfilledAreaContainingPoint(
   return null;
 }
 
+export function findExistingAreaContainingPoint(
+  state: NavMap,
+  clickPoint: THREE.Vector3
+): { id: string; area: { edges: string[] } } | null {
+  // Iterate through each existing area
+  for (const [areaId, area] of Object.entries(state.areas)) {
+    if (!area.edges || area.edges.length < 3) continue;
+
+    // Construct polygon from area edges
+    const polygonPoints = getPolygonPointsFromEdges(state, area.edges);
+
+    // Test if click point is inside this polygon
+    if (
+      polygonPoints.length >= 3 &&
+      isPointInPolygon(clickPoint, polygonPoints)
+    ) {
+      return {
+        id: areaId,
+        area: area,
+      };
+    }
+  }
+
+  return null;
+}
+
 export function findSmallestPolygonContainingPoint(
   state: NavMap,
   clickPoint: THREE.Vector3
