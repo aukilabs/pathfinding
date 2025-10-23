@@ -343,10 +343,10 @@ export default function NavgraphRenderer({}: {}) {
               />
               <Text
                 rotation={[-Math.PI / 2, 0, 0]}
-                position={[0, 0.1, -0.25]}
-                fontSize={0.25}
-                color="#5555AA"
-                visible={false}
+                position={[0, 0.05, -0.15]}
+                fontSize={0.1}
+                color="#888888"
+                visible={true}
               >
                 {pointId}
               </Text>
@@ -501,9 +501,9 @@ export default function NavgraphRenderer({}: {}) {
                 <Text
                   rotation={[-Math.PI / 2, 0, 0]}
                   position={midpoint}
-                  fontSize={0.25}
-                  color="#AA0000"
-                  visible={false}
+                  fontSize={0.08}
+                  color="#888888"
+                  visible={true}
                 >
                   {edgeId}
                 </Text>
@@ -630,8 +630,8 @@ export default function NavgraphRenderer({}: {}) {
                   <meshStandardMaterial color="#00FF00" depthTest={false} />
                   <Text
                     rotation={[-Math.PI / 2, 0, 0]}
-                    position={[0, 0.5, 0]}
-                    fontSize={0.25}
+                    position={[0, 0.2, 0]}
+                    fontSize={0.1}
                     color="#007700"
                     renderOrder={20}
                   >

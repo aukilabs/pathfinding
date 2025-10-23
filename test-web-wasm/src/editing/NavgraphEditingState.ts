@@ -176,7 +176,16 @@ export const useNavgraphEditingState = create<{
   startEdgeDrawing: (position: THREE.Vector3) => {
     // Get the preview to determine the actual start position (snapped or not)
     const preview = get().getFirstClickPreview(position);
-    const actualStartPosition = preview?.snapPosition || position;
+
+    // If we're snapping to a point, use the exact point coordinates to avoid precision issues
+    let actualStartPosition = position;
+    if (preview?.snapType === "point" && preview.snapTarget) {
+      const state = get().crdt.state;
+      const point = state.points[preview.snapTarget];
+      actualStartPosition = new THREE.Vector3(point.x, point.y ?? 0, point.z);
+    } else if (preview?.snapPosition) {
+      actualStartPosition = preview.snapPosition;
+    }
 
     get().setEdgeDrawingState({
       isDrawing: true,
@@ -199,15 +208,21 @@ export const useNavgraphEditingState = create<{
       edgeDrawingState.firstPointPosition,
       position
     );
-    const actualEndPosition = preview?.snapPosition || position;
+
+    // If we're snapping to a point, use the exact point coordinates to avoid precision issues
+    let actualEndPosition = position;
+    if (preview?.snapType === "point" && preview.snapTarget) {
+      const point = state.points[preview.snapTarget];
+      actualEndPosition = new THREE.Vector3(point.x, point.y ?? 0, point.z);
+    } else if (preview?.snapPosition) {
+      actualEndPosition = preview.snapPosition;
+    }
 
     const result = createEdgeWithIntersections(
       state,
       edgeDrawingState.firstPointPosition,
       actualEndPosition
     );
-
-    console.log("Creating edge with intersections result:", result);
 
     const operation = {
       type: "createEdgeWithIntersections" as const,

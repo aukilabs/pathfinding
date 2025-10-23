@@ -190,12 +190,6 @@ function determineStartPoint(
     fromPoint.z - clickPoint.z
   ).normalize();
 
-  const toToDirection = new THREE.Vector3(
-    toPoint.x - clickPoint.x,
-    0,
-    toPoint.z - clickPoint.z
-  ).normalize();
-
   // Calculate the edge direction
   const edgeDirection = new THREE.Vector3(
     toPoint.x - fromPoint.x,

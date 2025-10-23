@@ -101,11 +101,26 @@ export function findNearbyEdge(
 export function detectEdgeIntersections(
   state: NavMap,
   from: THREE.Vector3,
-  to: THREE.Vector3
+  to: THREE.Vector3,
+  excludeFromPoint?: string,
+  excludeToPoint?: string
 ): EdgeIntersection[] {
   const intersections: EdgeIntersection[] = [];
 
   for (const [edgeId, edge] of Object.entries(state.edges)) {
+    // Skip edges connected to the snapped points to avoid false intersections
+    if (
+      excludeFromPoint &&
+      (edge.from === excludeFromPoint || edge.to === excludeFromPoint)
+    ) {
+      continue;
+    }
+    if (
+      excludeToPoint &&
+      (edge.from === excludeToPoint || edge.to === excludeToPoint)
+    ) {
+      continue;
+    }
     const edgeFrom = state.points[edge.from];
     const edgeTo = state.points[edge.to];
     if (!edgeFrom || !edgeTo) continue;
@@ -142,7 +157,7 @@ export function detectAreaSplits(
 ): AreaSplit[] {
   const splits: AreaSplit[] = [];
 
-  for (const [areaId, area] of Object.entries(state.areas)) {
+  for (const [_, area] of Object.entries(state.areas)) {
     if (!area.edges || area.edges.length < 3) continue;
 
     // Check if edge cuts completely through the area
@@ -264,8 +279,28 @@ export function createEdgeWithIntersections(
     });
   }
 
-  // Handle intersections first
-  const intersections = detectEdgeIntersections(state, from, to);
+  // Handle intersections first - use the actual point positions for intersection detection
+  const fromPointPos = nearbyPointFrom
+    ? new THREE.Vector3(
+        state.points[nearbyPointFrom].x,
+        state.points[nearbyPointFrom].y ?? 0,
+        state.points[nearbyPointFrom].z
+      )
+    : from;
+  const toPointPos = nearbyPointTo
+    ? new THREE.Vector3(
+        state.points[nearbyPointTo].x,
+        state.points[nearbyPointTo].y ?? 0,
+        state.points[nearbyPointTo].z
+      )
+    : to;
+  const intersections = detectEdgeIntersections(
+    state,
+    fromPointPos,
+    toPointPos,
+    nearbyPointFrom || undefined,
+    nearbyPointTo || undefined
+  );
   const intersectionPoints: { id: string; point: Point }[] = [];
 
   for (const intersection of intersections) {
@@ -300,9 +335,10 @@ export function createEdgeWithIntersections(
   newPoints.push(...intersectionPoints);
 
   // Create the main edge - if there are intersections, split it too
+  let edge: Edge;
   if (intersections.length === 0) {
     // No intersections, create single edge
-    const edge: Edge = { from: fromPointId, to: toPointId };
+    edge = { from: fromPointId, to: toPointId };
     return {
       edgeId,
       edge,
@@ -346,9 +382,10 @@ export function createEdgeWithIntersections(
       newEdges: mainEdgeSegments,
     });
 
+    edge = mainEdgeSegments[0]; // Return first segment as the "main" edge
     return {
       edgeId,
-      edge: mainEdgeSegments[0], // Return first segment as the "main" edge
+      edge,
       newPoints,
       splitEdges,
       splitAreas,
