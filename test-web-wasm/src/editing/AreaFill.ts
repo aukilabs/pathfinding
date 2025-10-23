@@ -86,8 +86,43 @@ function findPolygonByRightHandRule(
 
   //   console.log("Left point:", leftPoint);
   //   console.log("Right point:", rightPoint);
+
+  const polygon = findPolygonFromLeftRightPoint(
+    closestEdge.id,
+    leftPoint,
+    rightPoint,
+    state
+  );
+
+  // Verify the polygon contains the click point
+  if (polygon && polygon.length >= 3) {
+    const polygonPoints = buildPolygonFromEdges(polygon, state);
+    if (!polygonPoints) {
+      console.error("Failed to build polygon from edges");
+      return null;
+    }
+    // console.log("Polygon points:", polygonPoints);
+    const containsPoint = isPointInPolygon(clickPoint, polygonPoints);
+
+    if (containsPoint) {
+      //   console.log("Polygon contains click point!");
+      return polygon;
+    } else {
+      //   console.log("Polygon does not contain click point!");
+    }
+  }
+
+  return null;
+}
+
+export function findPolygonFromLeftRightPoint(
+  edgeId: string,
+  leftPoint: string,
+  rightPoint: string,
+  state: NavMap
+) {
   let currentPoint = leftPoint;
-  let currentEdge = closestEdge.id;
+  let currentEdge = edgeId;
   const polygon = [currentEdge];
   const visited = new Set([currentEdge]);
   let iterations = 0;
@@ -119,29 +154,11 @@ function findPolygonByRightHandRule(
     // Check if we've returned to the starting point
     if (currentPoint === rightPoint) {
       //   console.log("Returned to starting point, polygon complete");
-      break;
+      return polygon;
     }
   }
 
   //   console.log("Left-hand rule polygon:", polygon);
-
-  // Verify the polygon contains the click point
-  if (polygon.length >= 3) {
-    const polygonPoints = buildPolygonFromEdges(polygon, state);
-    if (!polygonPoints) {
-      console.error("Failed to build polygon from edges");
-      return null;
-    }
-    // console.log("Polygon points:", polygonPoints);
-    const containsPoint = isPointInPolygon(clickPoint, polygonPoints);
-
-    if (containsPoint) {
-      //   console.log("Polygon contains click point!");
-      return polygon;
-    } else {
-      //   console.log("Polygon does not contain click point!");
-    }
-  }
 
   return null;
 }

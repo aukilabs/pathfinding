@@ -1,5 +1,7 @@
 import { Area, Edge, NavMap, Point } from "auki-pathfinding";
 import { v4 as uuidv4 } from "uuid";
+import { EdgeWithId } from "./EdgeDrawing";
+import { findPolygonFromLeftRightPoint } from "./AreaFill";
 
 export type NavMapCRDT = {
   readonly state: NavMap;
@@ -24,8 +26,10 @@ type Operation =
         edgeId: string;
         edge: Edge;
         newPoints: { id: string; point: Point }[];
-        splitEdges: { originalEdgeId: string; newEdges: Edge[] }[];
-        splitAreas: { originalAreaId: string; newAreas: Area[] }[];
+        splitEdges: {
+          originalEdgeId: string;
+          newEdges: EdgeWithId[];
+        }[];
       };
     };
 
@@ -113,6 +117,9 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
 
       console.log("Edges after removal:", Object.keys(newEdges));
 
+      const newAreas = { ...newState.areas };
+
+      const areasSplitByPoint = new Map<string, string[]>();
       // Then add all new split edges
       for (const splitData of operation.data.splitEdges) {
         console.log(
@@ -121,12 +128,32 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
         for (const newEdge of splitData.newEdges) {
           // Use the provided edge ID if available, otherwise generate one
           const splitEdgeId =
-            (newEdge as any).id ||
+            newEdge.id ||
             `e${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           // Remove the id field from the edge object before storing
-          const { id, ...edgeData } = newEdge as any;
+          const { id, ...edgeData } = newEdge;
           newEdges[splitEdgeId] = edgeData;
           console.log(`Added edge ${splitEdgeId}:`, edgeData);
+        }
+
+        //iterate through areas and update them if they are intersected by the new edges
+        for (const [areaId, area] of Object.entries(newAreas)) {
+          if (area.edges.some((edgeId) => edgeId == splitData.originalEdgeId)) {
+            const intersectionPointId = splitData.newEdges[0].to;
+            areasSplitByPoint.set(areaId, [
+              ...(areasSplitByPoint.get(areaId) ?? []),
+              intersectionPointId,
+            ]);
+            newAreas[areaId] = {
+              ...area,
+              edges: [
+                ...area.edges.filter(
+                  (edgeId) => edgeId != splitData.originalEdgeId
+                ),
+                ...splitData.newEdges.map((edge) => edge.id),
+              ],
+            };
+          }
         }
       }
 
@@ -146,28 +173,65 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
         );
       }
 
-      console.log("Final edges:", Object.keys(newEdges));
+      console.log("Areas split by point:", areasSplitByPoint);
 
-      // Handle split areas
-      const newAreas = { ...newState.areas };
-      for (const splitData of operation.data.splitAreas) {
-        if (splitData.newAreas.length === 1) {
-          // Single area update (edge splitting case) - update the existing area in place
-          newAreas[splitData.originalAreaId] = splitData.newAreas[0];
-        } else {
-          // Multiple areas (true area splitting case) - remove original and add new ones
-          const {
-            [splitData.originalAreaId]: removedSplitArea,
-            ...remainingSplitAreas
-          } = newAreas;
-          Object.assign(newAreas, remainingSplitAreas);
+      // Handle area splitting for areas with 2+ split edges
+      for (const [areaId, splitPoints] of areasSplitByPoint.entries()) {
+        if (splitPoints.length >= 2) {
+          console.log(
+            `🔪 Area ${areaId} needs splitting (${splitPoints.length} edges split)`
+          );
 
-          // Add new areas
-          for (const newArea of splitData.newAreas) {
-            const newAreaId = `a${Date.now()}_${Math.random()
-              .toString(36)
-              .substr(2, 9)}`;
-            newAreas[newAreaId] = newArea;
+          // 1. Remove the original area
+          delete newAreas[areaId];
+
+          // 2. find edge which is defined by split points
+          const splitEdge = Object.entries(newEdges).find(
+            (edge) =>
+              (edge[1].from == splitPoints[0] &&
+                edge[1].to == splitPoints[1]) ||
+              (edge[1].from == splitPoints[1] && edge[1].to == splitPoints[0])
+          );
+
+          if (splitEdge) {
+            // Create updated state with new edges and points
+            const updatedState = {
+              ...newState,
+              points: newPoints,
+              edges: newEdges,
+            };
+
+            // Find polygons on each side of the cutting edge
+            const newPolygon = findPolygonFromLeftRightPoint(
+              splitEdge[0], // edge ID
+              splitPoints[0], // left point ID
+              splitPoints[1], // right point ID
+              updatedState
+            );
+
+            if (newPolygon && newPolygon.length > 0) {
+              console.log("New polygon:", newPolygon);
+              const newAreaId = `a${Date.now()}_1`;
+              newAreas[newAreaId] = {
+                edges: newPolygon,
+              };
+            }
+
+            // Find polygon on the other side (reverse the points)
+            const newPolygon2 = findPolygonFromLeftRightPoint(
+              splitEdge[0], // edge ID
+              splitPoints[1], // right point ID
+              splitPoints[0], // left point ID
+              updatedState
+            );
+
+            if (newPolygon2 && newPolygon2.length > 0) {
+              console.log("New polygon2:", newPolygon2);
+              const newAreaId2 = `a${Date.now()}_2`;
+              newAreas[newAreaId2] = {
+                edges: newPolygon2,
+              };
+            }
           }
         }
       }

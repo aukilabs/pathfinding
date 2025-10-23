@@ -572,11 +572,26 @@ export default function NavgraphRenderer({}: {}) {
       {displayState.showAreas && (
         <group name="area-meshes">
           {Array.from(pathfinder.areaMeshes.entries()).map(([areaId, mesh]) => {
+            // Check if this area is being split in the current preview
+            const isBeingSplit =
+              editor.edgeDrawingState.isDrawing &&
+              editor.mousePosition &&
+              (() => {
+                const preview = editor.getEdgeDrawingPreview(
+                  editor.mousePosition
+                );
+                return (
+                  preview?.areaSplits.some(
+                    (split) => split.areaId === areaId
+                  ) || false
+                );
+              })();
+
             return (
               <group key={areaId}>
                 <primitive object={mesh} onPointerOver={() => {}}>
                   <meshStandardMaterial
-                    color="red"
+                    color={isBeingSplit ? "#ff6600" : "red"}
                     depthTest={false}
                     opacity={0.5}
                     transparent={true}

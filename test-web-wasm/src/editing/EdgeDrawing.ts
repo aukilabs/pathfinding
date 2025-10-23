@@ -38,7 +38,6 @@ export type EdgeCreationResult = {
   edge: Edge;
   newPoints: { id: string; point: Point }[];
   splitEdges: { originalEdgeId: string; newEdges: EdgeWithId[] }[];
-  splitAreas: { originalAreaId: string; newAreas: Area[] }[];
 };
 
 // Core helper functions
@@ -159,21 +158,27 @@ export function detectAreaSplits(
 ): AreaSplit[] {
   const splits: AreaSplit[] = [];
 
-  for (const [_, area] of Object.entries(state.areas)) {
+  // Find edges that the new edge intersects with
+  const intersections = detectEdgeIntersections(state, from, to);
+  const intersectedEdgeIds = intersections.map((i) => i.edgeId);
+
+  // Check each area to see if it contains multiple intersected edges
+  for (const [areaId, area] of Object.entries(state.areas)) {
     if (!area.edges || area.edges.length < 3) continue;
 
-    // Check if edge cuts completely through the area
-    const polygonPoints = buildPolygonFromEdges(area.edges, state);
-    if (!polygonPoints) continue;
+    // Count how many edges of this area are being intersected
+    const intersectedAreaEdges = area.edges.filter((edgeId) =>
+      intersectedEdgeIds.includes(edgeId)
+    );
 
-    const fromInside = isPointInPolygon(from, polygonPoints);
-    const toInside = isPointInPolygon(to, polygonPoints);
-
-    // Edge must go from outside to outside (or vice versa) to split
-    if (fromInside !== toInside) {
-      // TODO: Implement area splitting logic
-      // This is complex - need to determine how the edge cuts the polygon
-      // and create two new polygons
+    // If we're intersecting 2 or more edges of the same area, it's a split
+    if (intersectedAreaEdges.length >= 2) {
+      // Add to splits for preview highlighting
+      splits.push({
+        areaId,
+        newArea1: { edges: [] }, // Placeholder - not used for preview
+        newArea2: { edges: [] }, // Placeholder - not used for preview
+      });
     }
   }
 
@@ -252,7 +257,6 @@ export function createEdgeWithIntersections(
   const edgeId = `e${Date.now()}`;
   const newPoints: { id: string; point: Point }[] = [];
   const splitEdges: { originalEdgeId: string; newEdges: EdgeWithId[] }[] = [];
-  const splitAreas: { originalAreaId: string; newAreas: Area[] }[] = [];
 
   // Check if we need to create new points
   const nearbyPointFrom = findNearbyPoint(state, from);
@@ -372,35 +376,6 @@ export function createEdgeWithIntersections(
       originalEdgeId: intersection.edgeId,
       newEdges,
     });
-
-    // Find and update areas that contain this split edge
-    for (const [areaId, area] of Object.entries(state.areas)) {
-      if (area.edges && area.edges.includes(intersection.edgeId)) {
-        // This area contains the split edge, update it to use the new edges
-        const updatedEdges = area.edges
-          .map((edgeId) =>
-            edgeId === intersection.edgeId
-              ? newEdges.map((e) => e.id)
-              : [edgeId]
-          )
-          .flat();
-
-        // Add this area to splitAreas for updating
-        const existingSplitArea = splitAreas.find(
-          (sa) => sa.originalAreaId === areaId
-        );
-        if (existingSplitArea) {
-          // Update existing split area
-          existingSplitArea.newAreas[0] = { ...area, edges: updatedEdges };
-        } else {
-          // Create new split area entry
-          splitAreas.push({
-            originalAreaId: areaId,
-            newAreas: [{ ...area, edges: updatedEdges }],
-          });
-        }
-      }
-    }
   }
 
   // Determine the final point IDs - use intersection points if we snapped to edges
@@ -445,7 +420,6 @@ export function createEdgeWithIntersections(
       edge,
       newPoints,
       splitEdges,
-      splitAreas,
     };
   } else {
     // Has intersections, split the main edge
@@ -462,12 +436,14 @@ export function createEdgeWithIntersections(
     for (const intersection of sortedIntersections) {
       const intersectionPointId = `p_intersection_${intersection.edgeId}_1`;
 
-      // Create segment from current point to intersection
-      mainEdgeSegments.push({
-        id: `e_main_${edgeId}_${mainEdgeSegments.length}`,
-        from: currentFrom,
-        to: intersectionPointId,
-      });
+      // Create segment from current point to intersection (only if they're different)
+      if (currentFrom !== intersectionPointId) {
+        mainEdgeSegments.push({
+          id: `e_main_${edgeId}_${mainEdgeSegments.length}`,
+          from: currentFrom,
+          to: intersectionPointId,
+        });
+      }
 
       currentFrom = intersectionPointId;
     }
@@ -493,26 +469,8 @@ export function createEdgeWithIntersections(
       edge,
       newPoints,
       splitEdges,
-      splitAreas,
     };
   }
-
-  // Handle area splits
-  const areaSplits = detectAreaSplits(state, from, to);
-  for (const split of areaSplits) {
-    splitAreas.push({
-      originalAreaId: split.areaId,
-      newAreas: [split.newArea1, split.newArea2],
-    });
-  }
-
-  return {
-    edgeId,
-    edge,
-    newPoints,
-    splitEdges,
-    splitAreas,
-  };
 }
 
 // Helper functions for geometric calculations
