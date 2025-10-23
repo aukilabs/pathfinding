@@ -17,7 +17,17 @@ type Operation =
   | { type: "setEdge"; data: { id: string; edge: Edge } }
   | { type: "removeEdge"; data: { id: string } }
   | { type: "setArea"; data: { id: string; area: Area } }
-  | { type: "removeArea"; data: { id: string } };
+  | { type: "removeArea"; data: { id: string } }
+  | {
+      type: "createEdgeWithIntersections";
+      data: {
+        edgeId: string;
+        edge: Edge;
+        newPoints: { id: string; point: Point }[];
+        splitEdges: { originalEdgeId: string; newEdges: Edge[] }[];
+        splitAreas: { originalAreaId: string; newAreas: Area[] }[];
+      };
+    };
 
 export const generateOperationId = () => uuidv4();
 
@@ -81,6 +91,85 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
       const { [operation.data.id]: removedArea, ...remainingAreas } =
         state.areas;
       return { ...state, areas: remainingAreas };
+    case "createEdgeWithIntersections":
+      let newState = { ...state };
+      console.log("Processing createEdgeWithIntersections:", operation.data);
+
+      // Add new points
+      const newPoints = { ...newState.points };
+      for (const pointData of operation.data.newPoints) {
+        newPoints[pointData.id] = pointData.point;
+      }
+
+      // Handle split edges (including the main edge if it's split)
+      const newEdges = { ...newState.edges };
+      console.log("Original edges before processing:", Object.keys(newEdges));
+
+      // First, remove all edges that will be split
+      for (const splitData of operation.data.splitEdges) {
+        console.log(`Removing edge ${splitData.originalEdgeId}`);
+        delete newEdges[splitData.originalEdgeId];
+      }
+
+      console.log("Edges after removal:", Object.keys(newEdges));
+
+      // Then add all new split edges
+      for (const splitData of operation.data.splitEdges) {
+        console.log(
+          `Adding ${splitData.newEdges.length} new edges for ${splitData.originalEdgeId}`
+        );
+        for (const newEdge of splitData.newEdges) {
+          const splitEdgeId = `e${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          newEdges[splitEdgeId] = newEdge;
+          console.log(`Added edge ${splitEdgeId}:`, newEdge);
+        }
+      }
+
+      // Finally, add the main edge (only if it wasn't split)
+      const mainEdgeWasSplit = operation.data.splitEdges.some(
+        (split) => split.originalEdgeId === operation.data.edgeId
+      );
+      console.log(
+        `Main edge ${operation.data.edgeId} was split:`,
+        mainEdgeWasSplit
+      );
+      if (!mainEdgeWasSplit) {
+        newEdges[operation.data.edgeId] = operation.data.edge;
+        console.log(
+          `Added main edge ${operation.data.edgeId}:`,
+          operation.data.edge
+        );
+      }
+
+      console.log("Final edges:", Object.keys(newEdges));
+
+      // Handle split areas
+      const newAreas = { ...newState.areas };
+      for (const splitData of operation.data.splitAreas) {
+        // Remove original area
+        const {
+          [splitData.originalAreaId]: removedSplitArea,
+          ...remainingSplitAreas
+        } = newAreas;
+        Object.assign(newAreas, remainingSplitAreas);
+
+        // Add new areas
+        for (const newArea of splitData.newAreas) {
+          const newAreaId = `a${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          newAreas[newAreaId] = newArea;
+        }
+      }
+
+      return {
+        ...newState,
+        points: newPoints,
+        edges: newEdges,
+        areas: newAreas,
+      };
     default:
       // This should never happen with proper typing, but satisfies TypeScript
       return state;

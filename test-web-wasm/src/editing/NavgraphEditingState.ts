@@ -12,8 +12,20 @@ import {
   findSmallestUnfilledAreaContainingPoint,
   findExistingAreaContainingPoint,
 } from "./AreaFill";
+import {
+  createEdgeWithIntersections,
+  getDrawingPreview,
+  DrawingPreview,
+  findNearbyPoint,
+  findNearbyEdge,
+} from "./EdgeDrawing";
 
-type EdgeDrawingState = { isDrawing: boolean; firstPoint: string | null };
+type EdgeDrawingState = {
+  isDrawing: boolean;
+  firstPoint: string | null;
+  firstPointPosition: THREE.Vector3 | null;
+  isCreatingNewPoints: boolean;
+};
 type DragState = {
   isDragging: boolean;
   draggedPoint: string | null;
@@ -27,9 +39,14 @@ export const useNavgraphEditingState = create<{
   crdt: NavMapCRDT;
   setCRDT: (crdt: NavMapCRDT) => void;
   // Add to useNavgraphEditingState
-  selectedPoints: Set<string>;
-  setSelectedPoints: (points: Set<string>) => void;
-  edgeDrawingState: { isDrawing: boolean; firstPoint: string | null };
+  selectedPoint: string | null;
+  selectPoint: (pointId: string | null) => void;
+  edgeDrawingState: {
+    isDrawing: boolean;
+    firstPoint: string | null;
+    firstPointPosition: THREE.Vector3 | null;
+    isCreatingNewPoints: boolean;
+  };
   setEdgeDrawingState: (state: EdgeDrawingState) => void;
   mousePosition: THREE.Vector3 | null;
   setMousePosition: (position: THREE.Vector3 | null) => void;
@@ -38,24 +55,42 @@ export const useNavgraphEditingState = create<{
   addPoint: (position: THREE.Vector3) => void;
   updatePoint: (pointId: string, position: THREE.Vector3) => void;
   addEdge: (from: string, to: string) => void;
-  selectPoint: (pointId: string) => void;
-  togglePointSelection: (pointId: string) => void;
-  clearSelection: () => void;
   undo: () => void;
   redo: () => void;
-  fillAreaByClick: (clickPoint: THREE.Vector3) => void;
+  toggleAreaFillAroundClick: (clickPoint: THREE.Vector3) => void;
+  startEdgeDrawing: (position: THREE.Vector3) => void;
+  completeEdgeDrawing: (position: THREE.Vector3) => void;
+  cancelEdgeDrawing: () => void;
+  getEdgeDrawingPreview: (
+    currentPosition: THREE.Vector3
+  ) => DrawingPreview | null;
+  getFirstClickPreview: (
+    currentPosition: THREE.Vector3
+  ) => DrawingPreview | null;
 }>((set, get) => ({
   currentTool: "select",
   setCurrentTool: (tool: EditingTool) =>
     set({
       currentTool: tool,
-      edgeDrawingState: { isDrawing: false, firstPoint: null },
+      edgeDrawingState: {
+        isDrawing: false,
+        firstPoint: null,
+        firstPointPosition: null,
+        isCreatingNewPoints: false,
+      },
     }),
   crdt: createNavMapCRDT(TestNavData, "main-client"),
   setCRDT: (crdt: NavMapCRDT) => set({ crdt }),
-  selectedPoints: new Set(),
-  setSelectedPoints: (points: Set<string>) => set({ selectedPoints: points }),
-  edgeDrawingState: { isDrawing: false, firstPoint: null },
+  selectedPoint: null,
+  selectPoint: (pointId: string | null) => {
+    set({ selectedPoint: pointId });
+  },
+  edgeDrawingState: {
+    isDrawing: false,
+    firstPoint: null,
+    firstPointPosition: null,
+    isCreatingNewPoints: false,
+  },
   setEdgeDrawingState: (state: EdgeDrawingState) =>
     set({ edgeDrawingState: state }),
   mousePosition: null,
@@ -92,25 +127,6 @@ export const useNavgraphEditingState = create<{
     set({ crdt: newCRDT });
   },
 
-  selectPoint: (pointId: string) => {
-    set({ selectedPoints: new Set([pointId]) });
-  },
-
-  togglePointSelection: (pointId: string) => {
-    const current = get().selectedPoints;
-    const newSet = new Set(current);
-    if (newSet.has(pointId)) {
-      newSet.delete(pointId);
-    } else {
-      newSet.add(pointId);
-    }
-    set({ selectedPoints: newSet });
-  },
-
-  clearSelection: () => {
-    set({ selectedPoints: new Set() });
-  },
-
   undo: () => {
     const newCRDT = undo(get().crdt);
     set({ crdt: newCRDT });
@@ -121,7 +137,7 @@ export const useNavgraphEditingState = create<{
     set({ crdt: newCRDT });
   },
 
-  fillAreaByClick: (clickPoint: THREE.Vector3) => {
+  toggleAreaFillAroundClick: (clickPoint: THREE.Vector3) => {
     const state = get().crdt.state;
 
     // First check if we're clicking on an existing area
@@ -155,5 +171,114 @@ export const useNavgraphEditingState = create<{
       const newCRDT = applyOperation(get().crdt, operation);
       set({ crdt: newCRDT });
     }
+  },
+
+  startEdgeDrawing: (position: THREE.Vector3) => {
+    // Get the preview to determine the actual start position (snapped or not)
+    const preview = get().getFirstClickPreview(position);
+    const actualStartPosition = preview?.snapPosition || position;
+
+    get().setEdgeDrawingState({
+      isDrawing: true,
+      firstPoint: null,
+      firstPointPosition: actualStartPosition.clone(),
+      isCreatingNewPoints: true,
+    });
+  },
+
+  completeEdgeDrawing: (position: THREE.Vector3) => {
+    const { edgeDrawingState } = get();
+    if (!edgeDrawingState.isDrawing || !edgeDrawingState.firstPointPosition)
+      return;
+
+    const state = get().crdt.state;
+
+    // Get the preview to determine the actual end position (snapped or not)
+    const preview = getDrawingPreview(
+      state,
+      edgeDrawingState.firstPointPosition,
+      position
+    );
+    const actualEndPosition = preview?.snapPosition || position;
+
+    const result = createEdgeWithIntersections(
+      state,
+      edgeDrawingState.firstPointPosition,
+      actualEndPosition
+    );
+
+    console.log("Creating edge with intersections result:", result);
+
+    const operation = {
+      type: "createEdgeWithIntersections" as const,
+      data: result,
+    };
+
+    const newCRDT = applyOperation(get().crdt, operation);
+    set({ crdt: newCRDT });
+
+    // Reset edge drawing state
+    get().cancelEdgeDrawing();
+  },
+
+  cancelEdgeDrawing: () => {
+    get().setEdgeDrawingState({
+      isDrawing: false,
+      firstPoint: null,
+      firstPointPosition: null,
+      isCreatingNewPoints: false,
+    });
+  },
+
+  getEdgeDrawingPreview: (currentPosition: THREE.Vector3) => {
+    const { edgeDrawingState } = get();
+    if (!edgeDrawingState.isDrawing || !edgeDrawingState.firstPointPosition)
+      return null;
+
+    const state = get().crdt.state;
+    return getDrawingPreview(
+      state,
+      edgeDrawingState.firstPointPosition,
+      currentPosition
+    );
+  },
+
+  getFirstClickPreview: (currentPosition: THREE.Vector3) => {
+    const { currentTool } = get();
+    if (currentTool !== "drawEdge") return null;
+
+    const state = get().crdt.state;
+
+    // Check point snap first
+    const nearbyPointId = findNearbyPoint(state, currentPosition);
+    if (nearbyPointId) {
+      const point = state.points[nearbyPointId];
+      return {
+        snapTarget: nearbyPointId,
+        snapType: "point" as const,
+        snapPosition: new THREE.Vector3(point.x, point.y ?? 0, point.z),
+        intersections: [],
+        areaSplits: [],
+        previewPoints: [
+          currentPosition,
+          new THREE.Vector3(point.x, point.y ?? 0, point.z),
+        ],
+      };
+    }
+
+    // Check edge snap second
+    const nearbyEdge = findNearbyEdge(state, currentPosition);
+    if (nearbyEdge) {
+      return {
+        snapTarget: nearbyEdge.edgeId,
+        snapType: "edge" as const,
+        snapPosition: nearbyEdge.snapPoint,
+        intersections: [],
+        areaSplits: [],
+        previewPoints: [currentPosition, nearbyEdge.snapPoint],
+      };
+    }
+
+    return null; // No snap available
   },
 }));

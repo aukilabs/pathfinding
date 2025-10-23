@@ -34,6 +34,18 @@ export default function NavgraphRenderer({}: {}) {
     console.log("editor.crdt.state", editor.crdt.state);
   }, [editor.crdt.state]);
 
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && editor.edgeDrawingState.isDrawing) {
+        editor.cancelEdgeDrawing();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editor.edgeDrawingState.isDrawing, editor.cancelEdgeDrawing]);
+
   // Initialize refs with initial positions
   useEffect(() => {
     if (startRef.current) {
@@ -69,29 +81,31 @@ export default function NavgraphRenderer({}: {}) {
       event.stopPropagation();
 
       if (editor.currentTool === "select") {
-        editor.togglePointSelection(pointId);
+        editor.selectPoint(editor.selectedPoint === pointId ? null : pointId);
       } else if (editor.currentTool === "drawEdge") {
-        if (!editor.edgeDrawingState.isDrawing) {
-          // Start edge drawing - select first point
-          editor.setEdgeDrawingState({ isDrawing: true, firstPoint: pointId });
-        } else {
-          // Complete edge drawing - create edge
-          if (
-            editor.edgeDrawingState.firstPoint &&
-            editor.edgeDrawingState.firstPoint !== pointId
-          ) {
-            editor.addEdge(editor.edgeDrawingState.firstPoint, pointId);
-          }
+        const point = pathfinder.getMapPoint(pointId);
+        if (!point) return;
 
-          // Reset edge drawing state
-          editor.setEdgeDrawingState({ isDrawing: false, firstPoint: null });
+        const pointPosition = new THREE.Vector3(point.x, point.y ?? 0, point.z);
+
+        if (!editor.edgeDrawingState.isDrawing) {
+          // Start edge drawing from existing point
+          editor.setEdgeDrawingState({
+            isDrawing: true,
+            firstPoint: pointId,
+            firstPointPosition: pointPosition,
+            isCreatingNewPoints: false,
+          });
+        } else {
+          // Complete edge drawing - snap to this point
+          editor.completeEdgeDrawing(pointPosition);
         }
       }
     },
     [
       editor.currentTool,
       editor.edgeDrawingState,
-      editor.selectedPoints,
+      editor.selectedPoint,
       editor.addEdge,
       editor.crdt,
       editor.setCRDT,
@@ -133,13 +147,24 @@ export default function NavgraphRenderer({}: {}) {
       if (editor.currentTool === "addPoint") {
         editor.addPoint(intersection);
       } else if (editor.currentTool === "fillArea") {
-        editor.fillAreaByClick(intersection);
+        editor.toggleAreaFillAroundClick(intersection);
+      } else if (editor.currentTool === "drawEdge") {
+        if (!editor.edgeDrawingState.isDrawing) {
+          // Start edge drawing
+          editor.startEdgeDrawing(intersection);
+        } else {
+          // Complete edge drawing
+          editor.completeEdgeDrawing(intersection);
+        }
       }
     },
     [
       editor.currentTool,
       editor.addPoint,
-      editor.fillAreaByClick,
+      editor.toggleAreaFillAroundClick,
+      editor.startEdgeDrawing,
+      editor.completeEdgeDrawing,
+      editor.edgeDrawingState.isDrawing,
       getIntersectionFromClick,
     ]
   );
@@ -175,14 +200,22 @@ export default function NavgraphRenderer({}: {}) {
         if (intersection) {
           editor.updatePoint(editor.dragState.draggedPoint, intersection);
         }
+      } else if (editor.currentTool === "drawEdge") {
+        // Update mouse position for first click preview
+        const intersection = getIntersectionFromClick(event);
+        if (intersection) {
+          editor.setMousePosition(intersection);
+        }
       }
     },
     [
       editor.edgeDrawingState.isDrawing,
       editor.dragState.isDragging,
       editor.dragState.draggedPoint,
+      editor.currentTool,
       getIntersectionFromClick,
       editor.updatePoint,
+      editor.setMousePosition,
     ]
   );
 
@@ -191,8 +224,8 @@ export default function NavgraphRenderer({}: {}) {
       event.stopPropagation();
 
       if (
-        editor.currentTool === "select" &&
-        editor.selectedPoints.has(pointId)
+        editor.currentTool === "drawEdge" &&
+        editor.selectedPoint === pointId
       ) {
         const point = pathfinder.getMapPoint(pointId);
         if (point) {
@@ -204,7 +237,7 @@ export default function NavgraphRenderer({}: {}) {
         }
       }
     },
-    [editor.currentTool, editor.selectedPoints, editor.setDragState, pathfinder]
+    [editor.currentTool, editor.selectedPoint, editor.setDragState, pathfinder]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -302,7 +335,7 @@ export default function NavgraphRenderer({}: {}) {
                   editor.dragState.isDragging &&
                   editor.dragState.draggedPoint === pointId
                     ? "#FFFF00"
-                    : editor.selectedPoints.has(pointId)
+                    : editor.selectedPoint === pointId
                     ? "#00FF00"
                     : "#FF0000"
                 }
@@ -312,7 +345,8 @@ export default function NavgraphRenderer({}: {}) {
                 rotation={[-Math.PI / 2, 0, 0]}
                 position={[0, 0.1, -0.25]}
                 fontSize={0.25}
-                color="#000000"
+                color="#5555AA"
+                visible={false}
               >
                 {pointId}
               </Text>
@@ -320,60 +354,140 @@ export default function NavgraphRenderer({}: {}) {
           ))}
         </group>
       )}
+      {/* First click preview (when draw edge tool is active but not drawing yet) */}
+      {editor.currentTool === "drawEdge" &&
+        !editor.edgeDrawingState.isDrawing &&
+        editor.mousePosition &&
+        (() => {
+          const preview = editor.getFirstClickPreview(editor.mousePosition);
+          if (!preview) return null;
+
+          return (
+            <>
+              {/* Snap highlight */}
+              {preview.snapTarget && preview.snapPosition && (
+                <mesh
+                  position={[
+                    preview.snapPosition.x,
+                    preview.snapPosition.y,
+                    preview.snapPosition.z,
+                  ]}
+                  renderOrder={25}
+                >
+                  <sphereGeometry args={[0.12, 16, 16]} />
+                  <meshStandardMaterial
+                    color={preview.snapType === "point" ? "#00ff00" : "#0000ff"}
+                    depthTest={false}
+                    transparent={true}
+                    opacity={0.7}
+                  />
+                </mesh>
+              )}
+            </>
+          );
+        })()}
+
+      {/* Edge drawing preview */}
       {editor.edgeDrawingState.isDrawing &&
-        editor.edgeDrawingState.firstPoint &&
-        editor.mousePosition && (
-          <Line
-            points={[
-              [
-                pathfinder.getMapPoint(editor.edgeDrawingState.firstPoint)!.x,
-                pathfinder.getMapPoint(editor.edgeDrawingState.firstPoint)!.y ??
-                  0,
-                pathfinder.getMapPoint(editor.edgeDrawingState.firstPoint)!.z,
-              ],
-              [
-                editor.mousePosition.x,
-                editor.mousePosition.y,
-                editor.mousePosition.z,
-              ],
-            ]}
-            color="#ffbb00"
-            linewidth={2}
-            dashed={true}
-            depthTest={false}
-            transparent={true}
-            renderOrder={20}
-          />
-        )}
+        editor.edgeDrawingState.firstPointPosition &&
+        editor.mousePosition &&
+        (() => {
+          const preview = editor.getEdgeDrawingPreview(editor.mousePosition);
+          const endPosition = preview?.snapPosition || editor.mousePosition;
+
+          return (
+            <>
+              {/* Main preview line */}
+              <Line
+                points={[
+                  [
+                    editor.edgeDrawingState.firstPointPosition.x,
+                    editor.edgeDrawingState.firstPointPosition.y,
+                    editor.edgeDrawingState.firstPointPosition.z,
+                  ],
+                  [endPosition.x, endPosition.y, endPosition.z],
+                ]}
+                color="#ffbb00"
+                linewidth={2}
+                dashed={true}
+                dashSize={0.1}
+                gapSize={0.1}
+                depthTest={false}
+                transparent={true}
+                renderOrder={20}
+              />
+
+              {/* Preview intersections and area splits */}
+              {preview && (
+                <>
+                  {/* Intersection points */}
+                  {preview.intersections.map((intersection, index) => (
+                    <mesh
+                      key={`intersection-${index}`}
+                      position={[
+                        intersection.intersectionPoint.x,
+                        intersection.intersectionPoint.y,
+                        intersection.intersectionPoint.z,
+                      ]}
+                      renderOrder={25}
+                    >
+                      <sphereGeometry args={[0.08, 16, 16]} />
+                      <meshStandardMaterial color="#ff0000" depthTest={false} />
+                    </mesh>
+                  ))}
+
+                  {/* Snap highlight */}
+                  {preview.snapTarget && preview.snapPosition && (
+                    <mesh
+                      position={[
+                        preview.snapPosition.x,
+                        preview.snapPosition.y,
+                        preview.snapPosition.z,
+                      ]}
+                      renderOrder={25}
+                    >
+                      <sphereGeometry args={[0.12, 16, 16]} />
+                      <meshStandardMaterial
+                        color={
+                          preview.snapType === "point" ? "#00ff00" : "#0000ff"
+                        }
+                        depthTest={false}
+                        transparent={true}
+                        opacity={0.7}
+                      />
+                    </mesh>
+                  )}
+                </>
+              )}
+            </>
+          );
+        })()}
       {displayState.showEdges && (
         <group name="edges">
           {Object.entries(pathfinder.allEdges).map(([edgeId, edge]) => {
+            const fromPoint = pathfinder.getMapPoint(edge.from);
+            const toPoint = pathfinder.getMapPoint(edge.to);
+
+            if (!fromPoint || !toPoint) {
+              console.warn(`Missing points for edge ${edgeId}:`, {
+                from: edge.from,
+                to: edge.to,
+              });
+              return null;
+            }
+
             const midpoint = new THREE.Vector3(
-              (pathfinder.getMapPoint(edge.from)!.x +
-                pathfinder.getMapPoint(edge.to)!.x) /
-                2,
-              ((pathfinder.getMapPoint(edge.from)!.y ?? 0) +
-                (pathfinder.getMapPoint(edge.to)!.y ?? 0)) /
-                2,
-              (pathfinder.getMapPoint(edge.from)!.z +
-                pathfinder.getMapPoint(edge.to)!.z) /
-                2
+              (fromPoint.x + toPoint.x) / 2,
+              ((fromPoint.y ?? 0) + (toPoint.y ?? 0)) / 2,
+              (fromPoint.z + toPoint.z) / 2
             );
             return (
               <group key={edgeId}>
                 <Line
                   key={edgeId}
                   points={[
-                    [
-                      pathfinder.getMapPoint(edge.from)!.x,
-                      pathfinder.getMapPoint(edge.from)!.y ?? 0,
-                      pathfinder.getMapPoint(edge.from)!.z,
-                    ],
-                    [
-                      pathfinder.getMapPoint(edge.to)!.x,
-                      pathfinder.getMapPoint(edge.to)!.y ?? 0,
-                      pathfinder.getMapPoint(edge.to)!.z,
-                    ],
+                    [fromPoint.x, fromPoint.y ?? 0, fromPoint.z],
+                    [toPoint.x, toPoint.y ?? 0, toPoint.z],
                   ]}
                   color="#AA0000"
                   linewidth={0.75}
@@ -388,7 +502,8 @@ export default function NavgraphRenderer({}: {}) {
                   rotation={[-Math.PI / 2, 0, 0]}
                   position={midpoint}
                   fontSize={0.25}
-                  color="#000000"
+                  color="#AA0000"
+                  visible={false}
                 >
                   {edgeId}
                 </Text>
