@@ -500,8 +500,13 @@ export class Pathfinder {
       const doTo = dir === undefined || dir === 0 || dir === 1;
       const doFrom = dir === undefined || dir === 0 || dir === -1;
 
+      let weight = geometry.calculateDistance(
+        node.position,
+        this.getMapPointInternal(node.toPointId)!
+      );
       if (doTo) {
         // Bidirectional or undefined - add both directions
+
         addAdjacency(
           tempAdjacencies,
           tempEdgeWeights,
@@ -509,7 +514,7 @@ export class Pathfinder {
           node.toPointId,
           true,
           {
-            weight: node.distance,
+            weight,
             path: [node.position, this.getMapPointInternal(node.toPointId)!],
           }
         );
@@ -522,7 +527,7 @@ export class Pathfinder {
           node.fromPointId,
           true,
           {
-            weight: node.distance,
+            weight,
             path: [node.position, this.getMapPointInternal(node.fromPointId)!],
           }
         );
