@@ -30,6 +30,7 @@ type Operation =
           originalEdgeId: string;
           newEdges: EdgeWithId[];
         }[];
+        areaSplitBehavior: string;
       };
     };
 
@@ -175,83 +176,119 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
 
       console.log("Areas split by point:", areasSplitByPoint);
 
-      // Handle area splitting for areas with 2+ split edges
-      for (const [areaId, splitPoints] of areasSplitByPoint.entries()) {
-        if (splitPoints.length >= 2) {
-          console.log(
-            `🔪 Area ${areaId} needs splitting (${splitPoints.length} edges split)`
-          );
+      // Handle area splitting based on user preference
+      if (operation.data.areaSplitBehavior === "split_areas") {
+        // Handle area splitting for areas with 2+ split edges
+        for (const [areaId, splitPoints] of areasSplitByPoint.entries()) {
+          if (splitPoints.length >= 2) {
+            console.log(
+              `🔪 Area ${areaId} needs splitting (${splitPoints.length} edges split)`
+            );
 
-          // 1. Remove the original area
-          delete newAreas[areaId];
+            // 1. Remove the original area
+            delete newAreas[areaId];
 
-          console.log("splitPoints", splitPoints);
+            console.log("splitPoints", splitPoints);
 
-          // 2. find edge which is defined by split points
-          const splitEdges = Object.entries(newEdges).filter(
-            ([_, edge]) =>
-              splitPoints.includes(edge.from) && splitPoints.includes(edge.to)
-          );
+            // 2. find edge which is defined by split points
+            const splitEdges = Object.entries(newEdges).filter(
+              ([_, edge]) =>
+                splitPoints.includes(edge.from) && splitPoints.includes(edge.to)
+            );
 
-          console.log("splitEdges", splitEdges);
+            console.log("splitEdges", splitEdges);
 
-          const areasCreatedBySplit: string[][] = [];
-          for (let [splitEdgeId, splitEdge] of splitEdges) {
-            if (splitEdge) {
-              // Create updated state with new edges and points
-              const updatedState = {
-                ...newState,
-                points: newPoints,
-                edges: newEdges,
-              };
+            const areasCreatedBySplit: string[][] = [];
+            for (let [splitEdgeId, splitEdge] of splitEdges) {
+              if (splitEdge) {
+                // Create updated state with new edges and points
+                const updatedState = {
+                  ...newState,
+                  points: newPoints,
+                  edges: newEdges,
+                };
 
-              // Find polygons on each side of the cutting edge
-              const newPolygon = findPolygonFromLeftRightPoint(
-                splitEdgeId, // edge ID
-                splitEdge.from, // left point ID
-                splitEdge.to, // right point ID
-                updatedState
-              );
+                // Find polygons on each side of the cutting edge
+                const newPolygon = findPolygonFromLeftRightPoint(
+                  splitEdgeId, // edge ID
+                  splitEdge.from, // left point ID
+                  splitEdge.to, // right point ID
+                  updatedState
+                );
 
-              // Find polygon on the other side (reverse the points)
-              const newPolygon2 = findPolygonFromLeftRightPoint(
-                splitEdgeId, // edge ID
-                splitEdge.to, // right point ID
-                splitEdge.from, // left point ID
-                updatedState
-              );
+                // Find polygon on the other side (reverse the points)
+                const newPolygon2 = findPolygonFromLeftRightPoint(
+                  splitEdgeId, // edge ID
+                  splitEdge.to, // right point ID
+                  splitEdge.from, // left point ID
+                  updatedState
+                );
 
-              if (
-                newPolygon &&
-                newPolygon.length > 0 &&
-                newPolygon2 &&
-                newPolygon2.length > 0
-              ) {
-                //dont add if new polygon is duplicated in areasCreatedBySplit
                 if (
-                  !areasCreatedBySplit.some((polygon) =>
-                    polygon.every((edge) => newPolygon.includes(edge))
-                  )
+                  newPolygon &&
+                  newPolygon.length > 0 &&
+                  newPolygon2 &&
+                  newPolygon2.length > 0
                 ) {
-                  areasCreatedBySplit.push(newPolygon);
-                }
-                if (
-                  !areasCreatedBySplit.some((polygon) =>
-                    polygon.every((edge) => newPolygon2.includes(edge))
-                  )
-                ) {
-                  areasCreatedBySplit.push(newPolygon2);
+                  //dont add if new polygon is duplicated in areasCreatedBySplit
+                  if (
+                    !areasCreatedBySplit.some((polygon) =>
+                      polygon.every((edge) => newPolygon.includes(edge))
+                    )
+                  ) {
+                    areasCreatedBySplit.push(newPolygon);
+                  }
+                  if (
+                    !areasCreatedBySplit.some((polygon) =>
+                      polygon.every((edge) => newPolygon2.includes(edge))
+                    )
+                  ) {
+                    areasCreatedBySplit.push(newPolygon2);
+                  }
                 }
               }
             }
-          }
 
-          for (let i = 0; i < areasCreatedBySplit.length; i++) {
-            const polygon = areasCreatedBySplit[i];
-            const newAreaId = `a${Date.now()}${areaId}_${i}`;
-            newAreas[newAreaId] = {
-              edges: polygon,
+            for (let i = 0; i < areasCreatedBySplit.length; i++) {
+              const polygon = areasCreatedBySplit[i];
+              const newAreaId = `a${Date.now()}${areaId}_${i}`;
+              newAreas[newAreaId] = {
+                edges: polygon,
+              };
+            }
+          }
+        }
+      } else if (operation.data.areaSplitBehavior === "remove_internal_edges") {
+        // Remove internal edges (cutting edges) from areas
+        for (const [areaId, splitPoints] of areasSplitByPoint.entries()) {
+          if (splitPoints.length >= 2) {
+            console.log(
+              `🔪 Area ${areaId} removing internal edges (${splitPoints.length} edges split)`
+            );
+
+            // Find edges that connect the split points (these are the cutting edges)
+            const cuttingEdges = Object.entries(newEdges).filter(
+              ([_, edge]) =>
+                splitPoints.includes(edge.from) && splitPoints.includes(edge.to)
+            );
+
+            // Remove cutting edges from the area
+            const updatedArea = {
+              ...newAreas[areaId],
+              edges: newAreas[areaId].edges.filter(
+                (edgeId) =>
+                  !cuttingEdges.some(
+                    ([cuttingEdgeId, _]) => cuttingEdgeId === edgeId
+                  )
+              ),
             };
+
+            newAreas[areaId] = updatedArea;
+
+            // Also remove the cutting edges from the global edges
+            for (const [cuttingEdgeId, _] of cuttingEdges) {
+              delete newEdges[cuttingEdgeId];
+            }
           }
         }
       }

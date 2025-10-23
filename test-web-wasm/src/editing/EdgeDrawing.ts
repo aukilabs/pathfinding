@@ -7,7 +7,10 @@ import {
 } from "auki-pathfinding";
 import { getClosestPointOnLineSegment } from "auki-pathfinding";
 import * as THREE from "three";
-import { EDGE_DRAWING_CONSTANTS } from "./EdgeDrawingConstants";
+import {
+  EDGE_DRAWING_CONSTANTS,
+  AreaSplitBehavior,
+} from "./EdgeDrawingConstants";
 
 // Types for edge drawing operations
 export type EdgeIntersection = {
@@ -38,6 +41,7 @@ export type EdgeCreationResult = {
   edge: Edge;
   newPoints: { id: string; point: Point }[];
   splitEdges: { originalEdgeId: string; newEdges: EdgeWithId[] }[];
+  areaSplitBehavior: AreaSplitBehavior;
 };
 
 // Core helper functions
@@ -252,7 +256,8 @@ export function getDrawingPreview(
 export function createEdgeWithIntersections(
   state: NavMap,
   from: THREE.Vector3,
-  to: THREE.Vector3
+  to: THREE.Vector3,
+  areaSplitBehavior: AreaSplitBehavior = "split_areas"
 ): EdgeCreationResult {
   const edgeId = `e${Date.now()}`;
   const newPoints: { id: string; point: Point }[] = [];
@@ -420,6 +425,7 @@ export function createEdgeWithIntersections(
       edge,
       newPoints,
       splitEdges,
+      areaSplitBehavior,
     };
   } else {
     // Has intersections, split the main edge
@@ -469,6 +475,7 @@ export function createEdgeWithIntersections(
       edge,
       newPoints,
       splitEdges,
+      areaSplitBehavior,
     };
   }
 }

@@ -19,6 +19,11 @@ import {
   findNearbyPoint,
   findNearbyEdge,
 } from "./EdgeDrawing";
+import { AreaSplitBehavior, AREA_SPLIT_BEHAVIOR } from "./EdgeDrawingConstants";
+
+export type UserPreferences = {
+  areaSplitBehavior: AreaSplitBehavior;
+};
 
 type EdgeDrawingState = {
   isDrawing: boolean;
@@ -41,6 +46,8 @@ export const useNavgraphEditingState = create<{
   // Add to useNavgraphEditingState
   selectedPoint: string | null;
   selectPoint: (pointId: string | null) => void;
+  userPreferences: UserPreferences;
+  setUserPreferences: (preferences: Partial<UserPreferences>) => void;
   edgeDrawingState: {
     isDrawing: boolean;
     firstPoint: string | null;
@@ -84,6 +91,14 @@ export const useNavgraphEditingState = create<{
   selectedPoint: null,
   selectPoint: (pointId: string | null) => {
     set({ selectedPoint: pointId });
+  },
+  userPreferences: {
+    areaSplitBehavior: AREA_SPLIT_BEHAVIOR.SPLIT_AREAS,
+  },
+  setUserPreferences: (preferences: Partial<UserPreferences>) => {
+    set((state) => ({
+      userPreferences: { ...state.userPreferences, ...preferences },
+    }));
   },
   edgeDrawingState: {
     isDrawing: false,
@@ -196,7 +211,7 @@ export const useNavgraphEditingState = create<{
   },
 
   completeEdgeDrawing: (position: THREE.Vector3) => {
-    const { edgeDrawingState } = get();
+    const { edgeDrawingState, userPreferences } = get();
     if (!edgeDrawingState.isDrawing || !edgeDrawingState.firstPointPosition)
       return;
 
@@ -221,7 +236,8 @@ export const useNavgraphEditingState = create<{
     const result = createEdgeWithIntersections(
       state,
       edgeDrawingState.firstPointPosition,
-      actualEndPosition
+      actualEndPosition,
+      userPreferences.areaSplitBehavior
     );
 
     const operation = {
