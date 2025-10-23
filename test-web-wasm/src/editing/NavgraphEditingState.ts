@@ -36,7 +36,12 @@ type DragState = {
   draggedPoint: string | null;
   startPosition: THREE.Vector3 | null;
 };
-type EditingTool = "select" | "addPoint" | "drawEdge" | "fillArea";
+type EditingTool =
+  | "select"
+  | "addPoint"
+  | "drawEdge"
+  | "fillArea"
+  | "deleteEdge";
 
 export const useNavgraphEditingState = create<{
   currentTool: EditingTool;
@@ -46,6 +51,8 @@ export const useNavgraphEditingState = create<{
   // Add to useNavgraphEditingState
   selectedPoint: string | null;
   selectPoint: (pointId: string | null) => void;
+  selectedAreas: string[];
+  setSelectedAreas: (areaIds: string[]) => void;
   userPreferences: UserPreferences;
   setUserPreferences: (preferences: Partial<UserPreferences>) => void;
   edgeDrawingState: {
@@ -74,6 +81,7 @@ export const useNavgraphEditingState = create<{
   getFirstClickPreview: (
     currentPosition: THREE.Vector3
   ) => DrawingPreview | null;
+  deleteEdge: (edgeId: string) => void;
 }>((set, get) => ({
   currentTool: "select",
   setCurrentTool: (tool: EditingTool) =>
@@ -91,6 +99,10 @@ export const useNavgraphEditingState = create<{
   selectedPoint: null,
   selectPoint: (pointId: string | null) => {
     set({ selectedPoint: pointId });
+  },
+  selectedAreas: [],
+  setSelectedAreas: (areaIds: string[]) => {
+    set({ selectedAreas: areaIds });
   },
   userPreferences: {
     areaSplitBehavior: AREA_SPLIT_BEHAVIOR.SPLIT_AREAS,
@@ -311,5 +323,40 @@ export const useNavgraphEditingState = create<{
     }
 
     return null; // No snap available
+  },
+
+  deleteEdge: (edgeId: string) => {
+    const { crdt } = get();
+
+    const edge = crdt.state.edges[edgeId];
+    if (!edge) return;
+
+    // Find orphan points (points that will have no edges after this deletion)
+    const orphanPoints: string[] = [];
+    const edgePoints = [edge.from, edge.to];
+
+    for (const pointId of edgePoints) {
+      const hasOtherEdges = Object.values(crdt.state.edges).some(
+        (otherEdge) =>
+          otherEdge !== edge &&
+          (otherEdge.from === pointId || otherEdge.to === pointId)
+      );
+
+      if (!hasOtherEdges) {
+        orphanPoints.push(pointId);
+      }
+    }
+
+    // Use the new atomic operation
+    const operation = {
+      type: "deleteEdgeWithAreaMerging" as const,
+      data: {
+        edgeId,
+        orphanPoints,
+      },
+    };
+
+    const newCRDT = applyOperation(crdt, operation);
+    set({ crdt: newCRDT });
   },
 }));

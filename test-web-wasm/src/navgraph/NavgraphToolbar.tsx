@@ -32,6 +32,10 @@ export default function NavgraphToolbar() {
       label: "Fill Area",
       tool: "fillArea",
     },
+    {
+      label: "Delete Edge",
+      tool: "deleteEdge",
+    },
   ] as const;
 
   return (

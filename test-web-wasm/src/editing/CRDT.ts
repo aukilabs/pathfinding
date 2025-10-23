@@ -20,6 +20,11 @@ type Operation =
   | { type: "removeEdge"; data: { id: string } }
   | { type: "setArea"; data: { id: string; area: Area } }
   | { type: "removeArea"; data: { id: string } }
+  | { type: "mergeAreas"; data: { areaIds: string[]; mergedAreaId: string } }
+  | {
+      type: "deleteEdgeWithAreaMerging";
+      data: { edgeId: string; orphanPoints: string[] };
+    }
   | {
       type: "createEdgeWithIntersections";
       data: {
@@ -76,17 +81,22 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
         points: { ...state.points, [operation.data.id]: operation.data.point },
       };
     case "removePoint":
-      const { [operation.data.id]: removed, ...remainingPoints } = state.points;
-      return { ...state, points: remainingPoints };
+      const {
+        [operation.data.id]: removedPoint,
+        ...remainingPointsAfterPointRemoval
+      } = state.points;
+      return { ...state, points: remainingPointsAfterPointRemoval };
     case "setEdge":
       return {
         ...state,
         edges: { ...state.edges, [operation.data.id]: operation.data.edge },
       };
     case "removeEdge":
-      const { [operation.data.id]: removedEdge, ...remainingEdges } =
-        state.edges;
-      return { ...state, edges: remainingEdges };
+      const {
+        [operation.data.id]: removedEdgeFromState,
+        ...remainingEdgesAfterEdgeRemoval
+      } = state.edges;
+      return { ...state, edges: remainingEdgesAfterEdgeRemoval };
     case "setArea":
       return {
         ...state,
@@ -96,6 +106,107 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
       const { [operation.data.id]: removedArea, ...remainingAreas } =
         state.areas;
       return { ...state, areas: remainingAreas };
+    case "mergeAreas":
+      const areasToMerge = operation.data.areaIds
+        .map((id) => state.areas[id])
+        .filter(Boolean);
+      if (areasToMerge.length < 2) return state;
+
+      // Collect all unique edges from the areas to merge
+      const allEdges = new Set<string>();
+      for (const area of areasToMerge) {
+        for (const edgeId of area.edges) {
+          allEdges.add(edgeId);
+        }
+      }
+
+      // Remove the original areas
+      const areasAfterRemoval = { ...state.areas };
+      for (const areaId of operation.data.areaIds) {
+        delete areasAfterRemoval[areaId];
+      }
+
+      // Add the merged area
+      return {
+        ...state,
+        areas: {
+          ...areasAfterRemoval,
+          [operation.data.mergedAreaId]: {
+            edges: Array.from(allEdges),
+          },
+        },
+      };
+    case "deleteEdgeWithAreaMerging":
+      const edgeToDelete = state.edges[operation.data.edgeId];
+      if (!edgeToDelete) return state;
+
+      // Find areas that contain this edge
+      const areasContainingEdge: string[] = [];
+      for (const [areaId, area] of Object.entries(state.areas)) {
+        if (area.edges.includes(operation.data.edgeId)) {
+          areasContainingEdge.push(areaId);
+        }
+      }
+
+      // Remove the edge
+      const {
+        [operation.data.edgeId]: removedEdgeFromDelete,
+        ...remainingEdgesAfterDelete
+      } = state.edges;
+
+      // Remove orphan points
+      const { ...remainingPointsAfterDelete } = state.points;
+      for (const pointId of operation.data.orphanPoints) {
+        delete remainingPointsAfterDelete[pointId];
+      }
+
+      // Handle area merging
+      let updatedAreas = { ...state.areas };
+
+      if (areasContainingEdge.length === 0) {
+        // Edge not part of any area, just remove it
+        return {
+          ...state,
+          points: remainingPointsAfterDelete,
+          edges: remainingEdgesAfterDelete,
+        };
+      } else if (areasContainingEdge.length === 1) {
+        // Remove edge from single area
+        const areaId = areasContainingEdge[0];
+        const area = updatedAreas[areaId];
+        updatedAreas[areaId] = {
+          ...area,
+          edges: area.edges.filter((id) => id !== operation.data.edgeId),
+        };
+      } else {
+        // Merge multiple areas
+        const mergedAreaId = `a${Date.now()}_merged`;
+        const allEdges = new Set<string>();
+
+        // Collect all edges from areas that will be merged (excluding the deleted edge)
+        for (const areaId of areasContainingEdge) {
+          const area = updatedAreas[areaId];
+          for (const edgeId of area.edges) {
+            if (edgeId !== operation.data.edgeId) {
+              allEdges.add(edgeId);
+            }
+          }
+          // Remove the original area
+          delete updatedAreas[areaId];
+        }
+
+        // Add the merged area
+        updatedAreas[mergedAreaId] = {
+          edges: Array.from(allEdges),
+        };
+      }
+
+      return {
+        ...state,
+        points: remainingPointsAfterDelete,
+        edges: remainingEdgesAfterDelete,
+        areas: updatedAreas,
+      };
     case "createEdgeWithIntersections":
       let newState = { ...state };
       console.log("Processing createEdgeWithIntersections:", operation.data);

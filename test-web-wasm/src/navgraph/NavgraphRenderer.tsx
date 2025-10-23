@@ -489,14 +489,22 @@ export default function NavgraphRenderer({}: {}) {
                     [fromPoint.x, fromPoint.y ?? 0, fromPoint.z],
                     [toPoint.x, toPoint.y ?? 0, toPoint.z],
                   ]}
-                  color="#AA0000"
-                  linewidth={0.75}
+                  color={
+                    editor.currentTool === "deleteEdge" ? "#FF0000" : "#AA0000"
+                  }
+                  linewidth={editor.currentTool === "deleteEdge" ? 2 : 0.75}
                   dashed={!!edge.dir}
                   dashSize={0.1}
                   gapSize={0.1}
                   depthTest={false}
                   transparent={true}
                   renderOrder={10}
+                  onClick={(event: React.MouseEvent) => {
+                    event.stopPropagation();
+                    if (editor.currentTool === "deleteEdge") {
+                      editor.deleteEdge(edgeId);
+                    }
+                  }}
                 />
                 <Text
                   rotation={[-Math.PI / 2, 0, 0]}
