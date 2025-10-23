@@ -1,6 +1,7 @@
 import earcut from "earcut";
 import * as THREE from "three";
 import * as constants from "./Constants";
+import { NavMap } from "./NavgraphTypes";
 
 export function calculateDistance(
   p1: THREE.Vector3Like,
@@ -241,4 +242,71 @@ export function createMeshFromTriangles(
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
   mesh.name = areaId;
   return mesh;
+}
+
+export function buildPolygonFromEdges(
+  edgeIds: string[],
+  map: NavMap
+): THREE.Vector3Like[] | null {
+  if (!map) return null;
+
+  // Build ordered polygon from area edges
+  const edgeMap = new Map<string, { from: string; to: string }>();
+  edgeIds.forEach((edgeId) => {
+    const edge = map.edges[edgeId];
+    if (edge) {
+      edgeMap.set(edgeId, edge);
+    }
+  });
+
+  // Find a starting edge and build the polygon
+  const polygon: THREE.Vector3Like[] = [];
+  const visited = new Set<string>();
+
+  const firstEdgeId = edgeIds[0];
+  const firstEdge = edgeMap.get(firstEdgeId);
+  if (!firstEdge) {
+    console.log("First edge not found:", firstEdgeId);
+    return null;
+  }
+
+  let currentPoint = firstEdge.from;
+  let currentEdgeId: string | undefined = firstEdgeId;
+
+  while (currentEdgeId && !visited.has(currentEdgeId)) {
+    visited.add(currentEdgeId);
+
+    const edge = edgeMap.get(currentEdgeId);
+    if (!edge) {
+      console.log("Edge not found:", currentEdgeId);
+      break;
+    }
+
+    const point = map.points[currentPoint];
+    polygon.push(point);
+    currentPoint = edge.to;
+
+    // Find next edge that starts from current point OR ends at current point
+    currentEdgeId = edgeIds.find((eid) => {
+      const e = edgeMap.get(eid);
+      return (
+        e &&
+        !visited.has(eid) &&
+        (e.from === currentPoint || e.to === currentPoint)
+      );
+    });
+
+    // If we found an edge that ends at current point, we need to reverse it
+    if (currentEdgeId) {
+      const e = edgeMap.get(currentEdgeId);
+      if (e && e.to === currentPoint) {
+        // Swap from/to for this edge in our path
+        const temp = e.from;
+        e.from = e.to;
+        e.to = temp;
+      }
+    }
+  }
+
+  return polygon.length > 2 ? polygon : null;
 }

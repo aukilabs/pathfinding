@@ -1,4 +1,8 @@
-import { getClosestPointOnLineSegment, NavMap } from "auki-pathfinding";
+import {
+  buildPolygonFromEdges,
+  getClosestPointOnLineSegment,
+  NavMap,
+} from "auki-pathfinding";
 import * as THREE from "three";
 
 export function findSmallestUnfilledAreaContainingPoint(
@@ -36,7 +40,11 @@ export function findExistingAreaContainingPoint(
     if (!area.edges || area.edges.length < 3) continue;
 
     // Construct polygon from area edges
-    const polygonPoints = getPolygonPointsFromEdges(state, area.edges);
+    const polygonPoints = buildPolygonFromEdges(area.edges, state);
+    if (!polygonPoints) {
+      console.error("Failed to build polygon from edges");
+      continue;
+    }
 
     // Test if click point is inside this polygon
     if (
@@ -64,14 +72,20 @@ function findPolygonByRightHandRule(
   state: NavMap,
   clickPoint: THREE.Vector3
 ): string[] | null {
+  //console.log("Finding polygon by right hand rule");
   // 1. Find the closest edge to the click point
   const closestEdge = findClosestEdge(state, clickPoint);
   if (!closestEdge) return null;
+
+  //console.log("Closest edge:", closestEdge, clickPoint);
 
   // 2. Determine which endpoint to start from based on click point position
   const leftPoint = determineStartPoint(state, closestEdge, clickPoint);
   const rightPoint =
     leftPoint === closestEdge.from ? closestEdge.to : closestEdge.from;
+
+  //   console.log("Left point:", leftPoint);
+  //   console.log("Right point:", rightPoint);
   let currentPoint = leftPoint;
   let currentEdge = closestEdge.id;
   const polygon = [currentEdge];
@@ -84,6 +98,8 @@ function findPolygonByRightHandRule(
 
     // Find the leftmost edge from current point
     const nextEdge = findLeftmostEdge(state, currentPoint, currentEdge);
+
+    // console.log("Next edge:", nextEdge);
     if (!nextEdge) {
       //no polygon found
       return [];
@@ -91,7 +107,7 @@ function findPolygonByRightHandRule(
 
     // Check if we've been here before
     if (visited.has(nextEdge.id)) {
-      console.log("Already visited edge:", nextEdge.id, "stopping");
+      //   console.log("Already visited edge:", nextEdge.id, "stopping");
       break;
     }
 
@@ -102,20 +118,28 @@ function findPolygonByRightHandRule(
 
     // Check if we've returned to the starting point
     if (currentPoint === rightPoint) {
-      //console.log("Returned to starting point, polygon complete");
+      //   console.log("Returned to starting point, polygon complete");
       break;
     }
   }
 
-  //console.log("Left-hand rule polygon:", polygon);
+  //   console.log("Left-hand rule polygon:", polygon);
 
   // Verify the polygon contains the click point
   if (polygon.length >= 3) {
-    const polygonPoints = getPolygonPointsFromEdges(state, polygon);
+    const polygonPoints = buildPolygonFromEdges(polygon, state);
+    if (!polygonPoints) {
+      console.error("Failed to build polygon from edges");
+      return null;
+    }
+    // console.log("Polygon points:", polygonPoints);
     const containsPoint = isPointInPolygon(clickPoint, polygonPoints);
 
     if (containsPoint) {
+      //   console.log("Polygon contains click point!");
       return polygon;
+    } else {
+      //   console.log("Polygon does not contain click point!");
     }
   }
 
@@ -268,40 +292,9 @@ function findLeftmostEdge(
   return leftmostEdge;
 }
 
-function getPolygonPointsFromEdges(
-  state: NavMap,
-  edgeIds: string[]
-): THREE.Vector3[] {
-  const polygonPoints: THREE.Vector3[] = [];
-  const visitedPoints = new Set<string>();
-
-  for (const edgeId of edgeIds) {
-    const edge = state.edges[edgeId];
-    if (edge) {
-      const fromPoint = state.points[edge.from];
-      const toPoint = state.points[edge.to];
-
-      if (fromPoint && !visitedPoints.has(edge.from)) {
-        polygonPoints.push(
-          new THREE.Vector3(fromPoint.x, fromPoint.y ?? 0, fromPoint.z)
-        );
-        visitedPoints.add(edge.from);
-      }
-      if (toPoint && !visitedPoints.has(edge.to)) {
-        polygonPoints.push(
-          new THREE.Vector3(toPoint.x, toPoint.y ?? 0, toPoint.z)
-        );
-        visitedPoints.add(edge.to);
-      }
-    }
-  }
-
-  return polygonPoints;
-}
-
 function isPointInPolygon(
-  point: THREE.Vector3,
-  polygon: THREE.Vector3[]
+  point: THREE.Vector3Like,
+  polygon: THREE.Vector3Like[]
 ): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {

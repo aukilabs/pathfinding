@@ -129,7 +129,7 @@ export class Pathfinder {
 
   private initializeMapAreas() {
     for (const [areaId, area] of Object.entries(this._map.areas)) {
-      const polygon = graphUtils.buildPolygonFromArea(areaId, this._map);
+      const polygon = geometry.buildPolygonFromEdges(area.edges, this._map);
       if (!polygon) {
         console.error("failed to build polygon for area");
         continue;
