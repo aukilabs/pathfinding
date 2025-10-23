@@ -16,6 +16,8 @@ export type EdgeIntersection = {
   splitSegments: Edge[];
 };
 
+export type EdgeWithId = Edge & { id: string };
+
 export type AreaSplit = {
   areaId: string;
   newArea1: Area;
@@ -35,7 +37,7 @@ export type EdgeCreationResult = {
   edgeId: string;
   edge: Edge;
   newPoints: { id: string; point: Point }[];
-  splitEdges: { originalEdgeId: string; newEdges: Edge[] }[];
+  splitEdges: { originalEdgeId: string; newEdges: EdgeWithId[] }[];
   splitAreas: { originalAreaId: string; newAreas: Area[] }[];
 };
 
@@ -249,35 +251,19 @@ export function createEdgeWithIntersections(
 ): EdgeCreationResult {
   const edgeId = `e${Date.now()}`;
   const newPoints: { id: string; point: Point }[] = [];
-  const splitEdges: { originalEdgeId: string; newEdges: Edge[] }[] = [];
+  const splitEdges: { originalEdgeId: string; newEdges: EdgeWithId[] }[] = [];
   const splitAreas: { originalAreaId: string; newAreas: Area[] }[] = [];
 
   // Check if we need to create new points
   const nearbyPointFrom = findNearbyPoint(state, from);
   const nearbyPointTo = findNearbyPoint(state, to);
 
+  // Check if we're snapping to edges (for forced intersection detection)
+  const nearbyEdgeFrom = findNearbyEdge(state, from);
+  const nearbyEdgeTo = findNearbyEdge(state, to);
+
   let fromPointId: string;
   let toPointId: string;
-
-  if (nearbyPointFrom) {
-    fromPointId = nearbyPointFrom;
-  } else {
-    fromPointId = `p${Date.now()}_1`;
-    newPoints.push({
-      id: fromPointId,
-      point: { x: from.x, y: 0, z: from.z },
-    });
-  }
-
-  if (nearbyPointTo) {
-    toPointId = nearbyPointTo;
-  } else {
-    toPointId = `p${Date.now()}_2`;
-    newPoints.push({
-      id: toPointId,
-      point: { x: to.x, y: 0, z: to.z },
-    });
-  }
 
   // Handle intersections first - use the actual point positions for intersection detection
   const fromPointPos = nearbyPointFrom
@@ -294,6 +280,8 @@ export function createEdgeWithIntersections(
         state.points[nearbyPointTo].z
       )
     : to;
+
+  // Get geometric intersections
   const intersections = detectEdgeIntersections(
     state,
     fromPointPos,
@@ -301,9 +289,64 @@ export function createEdgeWithIntersections(
     nearbyPointFrom || undefined,
     nearbyPointTo || undefined
   );
+
+  // Add forced intersections for edges we're snapping to
+  const forcedIntersections: EdgeIntersection[] = [];
+
+  // Get set of edges already detected by geometric intersection
+  const geometricallyDetectedEdges = new Set(
+    intersections.map((i) => i.edgeId)
+  );
+
+  if (nearbyEdgeFrom && !nearbyPointFrom) {
+    // We're snapping to an edge from the start point
+    forcedIntersections.push({
+      edgeId: nearbyEdgeFrom.edgeId,
+      intersectionPoint: nearbyEdgeFrom.snapPoint,
+      splitSegments: [
+        {
+          from: state.edges[nearbyEdgeFrom.edgeId].from,
+          to: `p_intersection_${nearbyEdgeFrom.edgeId}_1`,
+        },
+        {
+          from: `p_intersection_${nearbyEdgeFrom.edgeId}_1`,
+          to: state.edges[nearbyEdgeFrom.edgeId].to,
+        },
+      ],
+    });
+  }
+
+  if (nearbyEdgeTo && !nearbyPointTo) {
+    // We're snapping to an edge at the end point
+    forcedIntersections.push({
+      edgeId: nearbyEdgeTo.edgeId,
+      intersectionPoint: nearbyEdgeTo.snapPoint,
+      splitSegments: [
+        {
+          from: state.edges[nearbyEdgeTo.edgeId].from,
+          to: `p_intersection_${nearbyEdgeTo.edgeId}_1`,
+        },
+        {
+          from: `p_intersection_${nearbyEdgeTo.edgeId}_1`,
+          to: state.edges[nearbyEdgeTo.edgeId].to,
+        },
+      ],
+    });
+  }
+
+  // Combine geometric and forced intersections, removing duplicates
+  const allIntersections = [...intersections];
+
+  // Add forced intersections only if not already detected geometrically
+  for (const forcedIntersection of forcedIntersections) {
+    if (!geometricallyDetectedEdges.has(forcedIntersection.edgeId)) {
+      allIntersections.push(forcedIntersection);
+    }
+  }
+
   const intersectionPoints: { id: string; point: Point }[] = [];
 
-  for (const intersection of intersections) {
+  for (const intersection of allIntersections) {
     // Add intersection point
     const intersectionPointId = `p_intersection_${intersection.edgeId}_1`;
     intersectionPoints.push({
@@ -316,8 +359,8 @@ export function createEdgeWithIntersections(
     });
 
     // Create split edges for the intersected edge
-    const newEdges = intersection.splitSegments.map((segment) => ({
-      ...segment,
+    const newEdges = intersection.splitSegments.map((segment, index) => ({
+      id: `e_split_${intersection.edgeId}_${index}`,
       from:
         segment.from === intersection.edgeId
           ? intersectionPointId
@@ -329,6 +372,64 @@ export function createEdgeWithIntersections(
       originalEdgeId: intersection.edgeId,
       newEdges,
     });
+
+    // Find and update areas that contain this split edge
+    for (const [areaId, area] of Object.entries(state.areas)) {
+      if (area.edges && area.edges.includes(intersection.edgeId)) {
+        // This area contains the split edge, update it to use the new edges
+        const updatedEdges = area.edges
+          .map((edgeId) =>
+            edgeId === intersection.edgeId
+              ? newEdges.map((e) => e.id)
+              : [edgeId]
+          )
+          .flat();
+
+        // Add this area to splitAreas for updating
+        const existingSplitArea = splitAreas.find(
+          (sa) => sa.originalAreaId === areaId
+        );
+        if (existingSplitArea) {
+          // Update existing split area
+          existingSplitArea.newAreas[0] = { ...area, edges: updatedEdges };
+        } else {
+          // Create new split area entry
+          splitAreas.push({
+            originalAreaId: areaId,
+            newAreas: [{ ...area, edges: updatedEdges }],
+          });
+        }
+      }
+    }
+  }
+
+  // Determine the final point IDs - use intersection points if we snapped to edges
+  if (nearbyPointFrom) {
+    fromPointId = nearbyPointFrom;
+  } else if (nearbyEdgeFrom && !nearbyPointFrom) {
+    // We snapped to an edge from the start, use the intersection point
+    fromPointId = `p_intersection_${nearbyEdgeFrom.edgeId}_1`;
+  } else {
+    // Free drawing, create new point
+    fromPointId = `p${Date.now()}_1`;
+    newPoints.push({
+      id: fromPointId,
+      point: { x: from.x, y: 0, z: from.z },
+    });
+  }
+
+  if (nearbyPointTo) {
+    toPointId = nearbyPointTo;
+  } else if (nearbyEdgeTo && !nearbyPointTo) {
+    // We snapped to an edge, use the intersection point
+    toPointId = `p_intersection_${nearbyEdgeTo.edgeId}_1`;
+  } else {
+    // Free drawing, create new point
+    toPointId = `p${Date.now()}_2`;
+    newPoints.push({
+      id: toPointId,
+      point: { x: to.x, y: 0, z: to.z },
+    });
   }
 
   // Add intersection points to newPoints
@@ -336,7 +437,7 @@ export function createEdgeWithIntersections(
 
   // Create the main edge - if there are intersections, split it too
   let edge: Edge;
-  if (intersections.length === 0) {
+  if (allIntersections.length === 0) {
     // No intersections, create single edge
     edge = { from: fromPointId, to: toPointId };
     return {
@@ -348,11 +449,11 @@ export function createEdgeWithIntersections(
     };
   } else {
     // Has intersections, split the main edge
-    const mainEdgeSegments: Edge[] = [];
+    const mainEdgeSegments: EdgeWithId[] = [];
     let currentFrom = fromPointId;
 
     // Sort intersections by distance from start point
-    const sortedIntersections = intersections.sort((a, b) => {
+    const sortedIntersections = allIntersections.sort((a, b) => {
       const distA = from.distanceTo(a.intersectionPoint);
       const distB = from.distanceTo(b.intersectionPoint);
       return distA - distB;
@@ -363,6 +464,7 @@ export function createEdgeWithIntersections(
 
       // Create segment from current point to intersection
       mainEdgeSegments.push({
+        id: `e_main_${edgeId}_${mainEdgeSegments.length}`,
         from: currentFrom,
         to: intersectionPointId,
       });
@@ -370,11 +472,14 @@ export function createEdgeWithIntersections(
       currentFrom = intersectionPointId;
     }
 
-    // Create final segment from last intersection to end point
-    mainEdgeSegments.push({
-      from: currentFrom,
-      to: toPointId,
-    });
+    // Create final segment from last intersection to end point (only if they're different)
+    if (currentFrom !== toPointId) {
+      mainEdgeSegments.push({
+        id: `e_main_${edgeId}_${mainEdgeSegments.length}`,
+        from: currentFrom,
+        to: toPointId,
+      });
+    }
 
     // Add main edge segments to splitEdges (treating the main edge as "split")
     splitEdges.push({

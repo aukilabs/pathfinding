@@ -119,11 +119,14 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
           `Adding ${splitData.newEdges.length} new edges for ${splitData.originalEdgeId}`
         );
         for (const newEdge of splitData.newEdges) {
-          const splitEdgeId = `e${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-          newEdges[splitEdgeId] = newEdge;
-          console.log(`Added edge ${splitEdgeId}:`, newEdge);
+          // Use the provided edge ID if available, otherwise generate one
+          const splitEdgeId =
+            (newEdge as any).id ||
+            `e${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Remove the id field from the edge object before storing
+          const { id, ...edgeData } = newEdge as any;
+          newEdges[splitEdgeId] = edgeData;
+          console.log(`Added edge ${splitEdgeId}:`, edgeData);
         }
       }
 
@@ -148,19 +151,24 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
       // Handle split areas
       const newAreas = { ...newState.areas };
       for (const splitData of operation.data.splitAreas) {
-        // Remove original area
-        const {
-          [splitData.originalAreaId]: removedSplitArea,
-          ...remainingSplitAreas
-        } = newAreas;
-        Object.assign(newAreas, remainingSplitAreas);
+        if (splitData.newAreas.length === 1) {
+          // Single area update (edge splitting case) - update the existing area in place
+          newAreas[splitData.originalAreaId] = splitData.newAreas[0];
+        } else {
+          // Multiple areas (true area splitting case) - remove original and add new ones
+          const {
+            [splitData.originalAreaId]: removedSplitArea,
+            ...remainingSplitAreas
+          } = newAreas;
+          Object.assign(newAreas, remainingSplitAreas);
 
-        // Add new areas
-        for (const newArea of splitData.newAreas) {
-          const newAreaId = `a${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-          newAreas[newAreaId] = newArea;
+          // Add new areas
+          for (const newArea of splitData.newAreas) {
+            const newAreaId = `a${Date.now()}_${Math.random()
+              .toString(36)
+              .substr(2, 9)}`;
+            newAreas[newAreaId] = newArea;
+          }
         }
       }
 
