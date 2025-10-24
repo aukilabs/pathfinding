@@ -506,7 +506,10 @@ export class Pathfinder {
       );
       if (doTo) {
         // Bidirectional or undefined - add both directions
-
+        let weight = geometry.calculateDistance(
+          node.position,
+          this.getMapPointInternal(node.toPointId)!
+        );
         addAdjacency(
           tempAdjacencies,
           tempEdgeWeights,
@@ -520,6 +523,10 @@ export class Pathfinder {
         );
       }
       if (doFrom) {
+        let weight = geometry.calculateDistance(
+          node.position,
+          this.getMapPointInternal(node.fromPointId)!
+        );
         addAdjacency(
           tempAdjacencies,
           tempEdgeWeights,
