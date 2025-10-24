@@ -1,14 +1,101 @@
 import ThreeCanvas from "./threed/ThreeCanvas";
 import NavgraphToolbar from "./navgraph/NavgraphToolbar";
 import { Grid } from "@react-three/drei";
-import { Suspense } from "react";
+import { Suspense, useMemo, useState, useEffect } from "react";
 import NavgraphRenderer from "./navgraph/NavgraphRenderer";
 import { useMultiFloorState } from "./multifloor/MultifloorState";
 import { FloorEditingProvider } from "./multifloor/FloorEditingProvider";
 import { Button } from "react-aria-components";
+import { Pathfinder } from "auki-pathfinding";
+import { NavMapCRDT, createNavMapCRDT } from "./editing/CRDT";
+import { TestNavData } from "./navgraph/TestNavGraph";
+import { NavEndPoint } from "./navgraph/NavEndPoint";
+import { FloorSelectionContextMenu } from "./navgraph/FloorSelectionContextMenu";
+import * as THREE from "three";
+import { mergeFloorMaps } from "./multifloor/MergeFloorMaps";
+import { ThreeEvent } from "@react-three/fiber";
+
+const initialFloorCRDTs: Record<string, NavMapCRDT> = {
+  f1: createNavMapCRDT({ ...TestNavData }, "floor-f1"),
+  f2: createNavMapCRDT({ ...TestNavData }, "floor-f2"),
+};
 
 function App() {
   const { floorData, addFloor } = useMultiFloorState();
+
+  const [floorCRDTs, setFloorCRDTs] =
+    useState<Record<string, NavMapCRDT>>(initialFloorCRDTs);
+
+  // Handle CRDT updates from floors
+  const updateFloorCRDT = (floorId: string, newCRDT: NavMapCRDT) => {
+    setFloorCRDTs((prev) => ({ ...prev, [floorId]: newCRDT }));
+    console.log("Updated floor CRDT:", floorId, newCRDT);
+  };
+
+  const [pathfinderInitialized, setPathfinderInitialized] = useState(false);
+  const pathfinder = useMemo(() => {
+    const pathfinder = new Pathfinder({ maxOffGraphDistance: 10 });
+    pathfinder.initialize().then(() => {
+      setPathfinderInitialized(true);
+    });
+    return pathfinder;
+  }, []);
+
+  useEffect(() => {
+    if (!pathfinderInitialized) return;
+    const mergedNav = mergeFloorMaps(floorData, floorCRDTs);
+    pathfinder.load(mergedNav, []);
+  }, [floorCRDTs, pathfinderInitialized]);
+
+  const [start, setStart] = useState<{
+    floorId: string;
+    position: THREE.Vector3Like;
+  }>({ floorId: "f1", position: { x: 4, y: 0, z: 0 } });
+
+  const [end, setEnd] = useState<{
+    floorId: string;
+    position: THREE.Vector3Like;
+  }>({ floorId: "f1", position: { x: -5, y: 0, z: -4.5 } });
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    position: { x: number; y: number };
+    endpoint: "start" | "end" | null;
+  }>({
+    visible: false,
+    position: { x: 0, y: 0 },
+    endpoint: null,
+  });
+
+  // Handle context menu
+  const handleContextMenu = (
+    event: ThreeEvent<MouseEvent>,
+    endpoint: "start" | "end"
+  ) => {
+    event.stopPropagation();
+    setContextMenu({
+      visible: true,
+      position: { x: event.clientX, y: event.clientY },
+      endpoint,
+    });
+  };
+
+  const handleFloorSelect = (floorId: string) => {
+    if (contextMenu.endpoint === "start") {
+      setStart({ ...start, floorId });
+    } else if (contextMenu.endpoint === "end") {
+      setEnd({ ...end, floorId });
+    }
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu({
+      visible: false,
+      position: { x: 0, y: 0 },
+      endpoint: null,
+    });
+  };
 
   return (
     <div className="w-full h-screen flex flex-col bg-black">
@@ -20,42 +107,89 @@ function App() {
           gridAutoRows: "minmax(300px, 1fr)",
         }}
       >
-        {floorData.floors.map((floor) => (
-          <FloorEditingProvider key={floor.id}>
-            <div className="flex flex-col relative">
-              <div className="flex-1">
-                <ThreeCanvas>
-                  <color attach="background" args={["#f0f0f0"]} />
-                  <ambientLight intensity={Math.PI / 2} />
-                  <directionalLight intensity={2} position={[10, 100, 10]} />
-                  <Grid
-                    infiniteGrid
-                    cellSize={1}
-                    cellThickness={0.5}
-                    cellColor="#6f6f6f"
-                    sectionSize={5}
-                    sectionThickness={1.5}
-                    sectionColor="#a5b4fc"
-                    fadeDistance={400}
-                    fadeStrength={10}
-                    followCamera={false}
-                  />
+        {floorData.floors.map((floor) => {
+          const floorCRDT = floorCRDTs[floor.id];
+          if (!floorCRDT) return null; // Skip rendering until CRDT is initialized
 
-                  {/* Add NavgraphRenderer back */}
-                  <Suspense fallback={null}>
-                    <NavgraphRenderer />
-                  </Suspense>
-                </ThreeCanvas>
-              </div>
-              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 ">
-                <div className="bg-black rounded-10  text-white p-2.5 flex flex-row gap-2.5 items-center">
-                  {floor.name}
+          return (
+            <FloorEditingProvider
+              key={floor.id}
+              crdt={floorCRDT}
+              setCRDT={(newCRDT) => updateFloorCRDT(floor.id, newCRDT)}
+            >
+              <div className="flex flex-col relative">
+                <div className="flex-1">
+                  <ThreeCanvas>
+                    <color attach="background" args={["#f0f0f0"]} />
+                    <ambientLight intensity={Math.PI / 2} />
+                    <directionalLight intensity={2} position={[10, 100, 10]} />
+                    <Grid
+                      infiniteGrid
+                      cellSize={1}
+                      cellThickness={0.5}
+                      cellColor="#6f6f6f"
+                      sectionSize={5}
+                      sectionThickness={1.5}
+                      sectionColor="#a5b4fc"
+                      fadeDistance={400}
+                      fadeStrength={10}
+                      followCamera={false}
+                    />
+
+                    {/* Add NavgraphRenderer back */}
+                    <Suspense fallback={null}>
+                      <NavgraphRenderer />
+                    </Suspense>
+
+                    {/* Add NavEndPoints for this floor */}
+                    <NavEndPoint
+                      color="cyan"
+                      visible={start.floorId === floor.id}
+                      position={
+                        new THREE.Vector3(
+                          start.position.x,
+                          start.position.y,
+                          start.position.z
+                        )
+                      }
+                      setPosition={(pos) =>
+                        setStart({ ...start, position: pos })
+                      }
+                      floorId={floor.id}
+                      setFloorId={(id) => setStart({ ...start, floorId: id })}
+                      onContextMenu={(event) =>
+                        handleContextMenu(event, "start")
+                      }
+                    />
+                    <NavEndPoint
+                      color="blue"
+                      visible={end.floorId === floor.id}
+                      position={
+                        new THREE.Vector3(
+                          end.position.x,
+                          end.position.y,
+                          end.position.z
+                        )
+                      }
+                      setPosition={(pos) => setEnd({ ...end, position: pos })}
+                      floorId={floor.id}
+                      setFloorId={(id) => setEnd({ ...end, floorId: id })}
+                      onContextMenu={(event: ThreeEvent<MouseEvent>) =>
+                        handleContextMenu(event, "end")
+                      }
+                    />
+                  </ThreeCanvas>
                 </div>
+                <div className="absolute top-0 left-1/2 transform -translate-x-1/2 ">
+                  <div className="bg-black rounded-10  text-white p-2.5 flex flex-row gap-2.5 items-center">
+                    {floor.name}
+                  </div>
+                </div>
+                <NavgraphToolbar />
               </div>
-              <NavgraphToolbar />
-            </div>
-          </FloorEditingProvider>
-        ))}
+            </FloorEditingProvider>
+          );
+        })}
         <div className="absolute top-5 right-5 flex gap-2.5">
           <div className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
             <Button
@@ -70,6 +204,17 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Context Menu */}
+      <FloorSelectionContextMenu
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        onFloorSelect={handleFloorSelect}
+        onClose={closeContextMenu}
+        currentFloorId={
+          contextMenu.endpoint === "start" ? start.floorId : end.floorId
+        }
+      />
     </div>
   );
 }

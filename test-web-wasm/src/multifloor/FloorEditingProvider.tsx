@@ -1,13 +1,6 @@
-import React, { createContext, useContext, ReactNode } from "react";
+import React, { createContext, useContext, ReactNode, useMemo } from "react";
 import { create } from "zustand";
-import {
-  applyOperation,
-  createNavMapCRDT,
-  NavMapCRDT,
-  redo,
-  undo,
-} from "../editing/CRDT";
-import { TestNavData } from "../navgraph/TestNavGraph";
+import { applyOperation, NavMapCRDT, redo, undo } from "../editing/CRDT";
 import * as THREE from "three";
 import {
   findSmallestUnfilledAreaContainingPoint,
@@ -74,7 +67,10 @@ type FloorEditingState = {
   deleteEdge: (edgeId: string) => void;
 };
 
-const createFloorEditingStore = () =>
+const createFloorEditingStore = (
+  initialCRDT: NavMapCRDT,
+  setCRDTCallback: (crdt: NavMapCRDT) => void
+) =>
   create<FloorEditingState>()((set, get) => ({
     currentTool: "select",
     setCurrentTool: (tool: EditingTool) =>
@@ -87,8 +83,11 @@ const createFloorEditingStore = () =>
           isCreatingNewPoints: false,
         },
       }),
-    crdt: createNavMapCRDT(TestNavData, "main-client"),
-    setCRDT: (crdt: NavMapCRDT) => set({ crdt }),
+    crdt: initialCRDT,
+    setCRDT: (crdt: NavMapCRDT) => {
+      set({ crdt });
+      setCRDTCallback(crdt);
+    },
     selectedPoint: null,
     selectPoint: (pointId: string | null) => {
       set({ selectedPoint: pointId });
@@ -117,7 +116,7 @@ const createFloorEditingStore = () =>
         data: { id: pointId, point: { x: position.x, y: 0, z: position.z } },
       };
       const newCRDT = applyOperation(get().crdt, operation);
-      set({ crdt: newCRDT });
+      get().setCRDT(newCRDT);
     },
 
     updatePoint: (pointId: string, position: THREE.Vector3) => {
@@ -126,7 +125,7 @@ const createFloorEditingStore = () =>
         data: { id: pointId, point: { x: position.x, y: 0, z: position.z } },
       };
       const newCRDT = applyOperation(get().crdt, operation);
-      set({ crdt: newCRDT });
+      get().setCRDT(newCRDT);
     },
 
     addEdge: (from: string, to: string) => {
@@ -136,17 +135,17 @@ const createFloorEditingStore = () =>
         data: { id: edgeId, edge: { from, to } },
       };
       const newCRDT = applyOperation(get().crdt, operation);
-      set({ crdt: newCRDT });
+      get().setCRDT(newCRDT);
     },
 
     undo: () => {
       const newCRDT = undo(get().crdt);
-      set({ crdt: newCRDT });
+      get().setCRDT(newCRDT);
     },
 
     redo: () => {
       const newCRDT = redo(get().crdt);
-      set({ crdt: newCRDT });
+      get().setCRDT(newCRDT);
     },
 
     toggleAreaFillAroundClick: (clickPoint: THREE.Vector3) => {
@@ -349,8 +348,19 @@ const FloorEditingContext = createContext<ReturnType<
   typeof createFloorEditingStore
 > | null>(null);
 
-export function FloorEditingProvider({ children }: { children: ReactNode }) {
-  const store = React.useMemo(() => createFloorEditingStore(), []);
+export function FloorEditingProvider({
+  children,
+  crdt,
+  setCRDT,
+}: {
+  children: ReactNode;
+  crdt: NavMapCRDT;
+  setCRDT: (crdt: NavMapCRDT) => void;
+}) {
+  const store = useMemo(
+    () => createFloorEditingStore(crdt, setCRDT),
+    [crdt, setCRDT]
+  );
 
   return (
     <FloorEditingContext.Provider value={store}>

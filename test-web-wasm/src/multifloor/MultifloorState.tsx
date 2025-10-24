@@ -1,3 +1,4 @@
+import { EdgeDirection } from "auki-pathfinding";
 import * as React from "react";
 import * as THREE from "three";
 import { v4 as uuidv4 } from "uuid";
@@ -13,18 +14,36 @@ export type Floor = {
   id: string;
 };
 
-export type FloorMetadata = {
-  floors: Floor[];
+export type Link = {
+  fromFloorId: string;
+  toFloorId: string;
+  fromPointId: string;
+  toPointId: string;
+  weight: number;
+  direction: EdgeDirection;
 };
 
-const createInitialFloors = () => [
-  { name: "Floor 1", id: uuidv4() },
-  { name: "Floor 2", id: uuidv4() },
-];
+export type FloorMetadata = {
+  floors: Floor[];
+  links: Link[];
+};
 
 export const useMultiFloorState = create<MultiFloorState>()((set) => ({
   floorData: {
-    floors: createInitialFloors(),
+    floors: [
+      { name: "Floor 1", id: "f1" },
+      { name: "Floor 2", id: "f2" },
+    ],
+    links: [
+      {
+        fromFloorId: "f1",
+        toFloorId: "f2",
+        fromPointId: "p42",
+        toPointId: "p38",
+        weight: 5,
+        direction: 0,
+      },
+    ],
   },
   addFloor: (name: string) => {
     console.log("Adding floor:", name);
@@ -33,6 +52,7 @@ export const useMultiFloorState = create<MultiFloorState>()((set) => ({
       console.log("New floors:", newFloors);
       return {
         floorData: {
+          ...state.floorData,
           floors: newFloors,
         },
       };

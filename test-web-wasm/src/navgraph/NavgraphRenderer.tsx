@@ -21,8 +21,7 @@ export default function NavgraphRenderer({}: {}) {
   const displayState = useNavgraphDisplayState();
   const editor = useFloorEditingState();
   const [path, setPath] = useState<THREE.Vector3Like[] | null>(null);
-  const [start, setStart] = useState<THREE.Vector3Like>({ x: 4, y: 0, z: 0 });
-  const [end, setEnd] = useState<THREE.Vector3Like>({ x: -5, y: 0, z: -4.5 });
+
   const startRef = useRef<THREE.Object3D>(null);
   const endRef = useRef<THREE.Object3D>(null);
 
@@ -46,36 +45,6 @@ export default function NavgraphRenderer({}: {}) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [editor.edgeDrawingState.isDrawing, editor.cancelEdgeDrawing]);
 
-  // Initialize refs with initial positions
-  useEffect(() => {
-    if (startRef.current) {
-      startRef.current.position.set(start.x, start.y, start.z);
-    }
-    if (endRef.current) {
-      endRef.current.position.set(end.x, end.y, end.z);
-    }
-  }, []);
-
-  const [pathfinderInitialized, setPathfinderInitialized] = useState(false);
-  const pathfinder = useMemo(() => {
-    const pathfinder = new Pathfinder({ maxOffGraphDistance: 10 });
-    pathfinder.initialize().then(() => {
-      setPathfinderInitialized(true);
-    });
-    return pathfinder;
-  }, []);
-
-  useEffect(() => {
-    const asyncLoad = async () => {
-      console.log("Loading pathfinder");
-      if (!pathfinderInitialized) return;
-      pathfinder.load(editor.crdt.state, legacyNavmeshMeshes);
-      //kickstart the first pathfinding
-      setStart({ ...start });
-    };
-    asyncLoad();
-  }, [editor.crdt.state, legacyNavmeshMeshes, pathfinderInitialized]);
-
   const handlePointClick = useCallback(
     (pointId: string, event: React.MouseEvent) => {
       event.stopPropagation();
@@ -83,7 +52,7 @@ export default function NavgraphRenderer({}: {}) {
       if (editor.currentTool === "select") {
         editor.selectPoint(editor.selectedPoint === pointId ? null : pointId);
       } else if (editor.currentTool === "drawEdge") {
-        const point = pathfinder.getMapPoint(pointId);
+        const point = editor.crdt.state.points[pointId];
         if (!point) return;
 
         const pointPosition = new THREE.Vector3(point.x, point.y ?? 0, point.z);
@@ -174,24 +143,20 @@ export default function NavgraphRenderer({}: {}) {
     ]
   );
 
-  useEffect(() => {
-    if (!pathfinder.loaded) return;
-    const path = pathfinder.findPath(start, end);
-    setPath(path);
-  }, [pathfinder, start, end]);
-
   // Get adjacency list for visualization
-  const adjacencyList = useMemo(() => {
-    if (!pathfinder.loaded) return new Map();
-    return pathfinder.adjacencyListForVisualization;
-  }, [pathfinder, pathfinder.loaded, pathfinder.adjacencyListForVisualization]);
+  const adjacencyList = new Map();
+  // const adjacencyList = useMemo(() => {
+  //   if (!pathfinder.loaded) return new Map();
+  //   return pathfinder.adjacencyListForVisualization;
+  // }, [pathfinder, pathfinder.loaded, pathfinder.adjacencyListForVisualization]);
 
-  const navmeshHelpers = useCallback(
-    (id: string) => {
-      return new NavMeshHelper(pathfinder.navmeshes.get(id)!);
-    },
-    [pathfinder.navmeshes]
-  );
+  const navmeshHelpers = new Map();
+  // const navmeshHelpers = useCallback(
+  //   (id: string) => {
+  //     return new NavMeshHelper(pathfinder.navmeshes.get(id)!);
+  //   },
+  //   [pathfinder.navmeshes]
+  // );
 
   const handleMouseMove = useCallback(
     (event: React.MouseEvent) => {
@@ -232,7 +197,7 @@ export default function NavgraphRenderer({}: {}) {
         editor.currentTool === "drawEdge" &&
         editor.selectedPoint === pointId
       ) {
-        const point = pathfinder.getMapPoint(pointId);
+        const point = editor.crdt.state.points[pointId];
         if (point) {
           editor.setDragState({
             isDragging: true,
@@ -242,7 +207,12 @@ export default function NavgraphRenderer({}: {}) {
         }
       }
     },
-    [editor.currentTool, editor.selectedPoint, editor.setDragState, pathfinder]
+    [
+      editor.currentTool,
+      editor.selectedPoint,
+      editor.setDragState,
+      editor.crdt.state,
+    ]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -268,52 +238,16 @@ export default function NavgraphRenderer({}: {}) {
         <planeGeometry args={[100, 100]} />
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
-      {displayState.showNavmesh && (
+      {/* {displayState.showNavmesh && (
         <group name="navmesh">
           {Array.from(pathfinder.navmeshes.entries()).map(([id, _]) => {
             return <primitive key={id} object={navmeshHelpers(id)} />;
           })}
         </group>
-      )}
-      <group name="inputs">
-        <DragControls
-          axisLock="y"
-          onDragEnd={() => {
-            if (startRef.current) {
-              const worldPos = new THREE.Vector3();
-              startRef.current.getWorldPosition(worldPos);
-              setStart(worldPos);
-            }
-          }}
-        >
-          <group ref={startRef} name="start">
-            <mesh>
-              <boxGeometry args={[1, 1, 1]} />
-              <meshStandardMaterial color="cyan" />
-            </mesh>
-          </group>
-        </DragControls>
-        <DragControls
-          axisLock="y"
-          onDragEnd={() => {
-            if (endRef.current) {
-              const worldPos = new THREE.Vector3();
-              endRef.current.getWorldPosition(worldPos);
-              setEnd(worldPos);
-            }
-          }}
-        >
-          <group ref={endRef} name="end">
-            <mesh>
-              <boxGeometry args={[1, 1, 1]} />
-              <meshStandardMaterial color="blue" />
-            </mesh>
-          </group>
-        </DragControls>
-      </group>
+      )} */}
       {displayState.showPoints && (
         <group name="points">
-          {Object.entries(pathfinder.allPoints).map(([pointId, point]) => (
+          {Object.entries(editor.crdt.state.points).map(([pointId, point]) => (
             <mesh
               key={pointId}
               position={[point.x, point.y ?? 0, point.z]}
@@ -469,9 +403,9 @@ export default function NavgraphRenderer({}: {}) {
         })()}
       {displayState.showEdges && (
         <group name="edges">
-          {Object.entries(pathfinder.allEdges).map(([edgeId, edge]) => {
-            const fromPoint = pathfinder.getMapPoint(edge.from);
-            const toPoint = pathfinder.getMapPoint(edge.to);
+          {Object.entries(editor.crdt.state.edges).map(([edgeId, edge]) => {
+            const fromPoint = editor.crdt.state.points[edge.from];
+            const toPoint = editor.crdt.state.points[edge.to];
 
             if (!fromPoint || !toPoint) {
               console.warn(`Missing points for edge ${edgeId}:`, {
@@ -540,10 +474,10 @@ export default function NavgraphRenderer({}: {}) {
       {/* Visualize adjacency list connections */}
       {displayState.showAdjacencyList && (
         <group name="adjacency-list">
-          {Array.from(adjacencyList.entries()).map(([fromPointId, neighbors]) =>
+          {/* {Array.from(adjacencyList.entries()).map(([fromPointId, neighbors]) =>
             neighbors.map((toPointId: string, i: number) => {
-              const fromPoint = pathfinder.getMapPoint(fromPointId);
-              const toPoint = pathfinder.getMapPoint(toPointId);
+              const fromPoint = editor.crdt.state.points[fromPointId];
+              const toPoint = editor.crdt.state.points[toPointId];
 
               if (!fromPoint || !toPoint) return null;
 
@@ -591,12 +525,12 @@ export default function NavgraphRenderer({}: {}) {
                 />
               );
             })
-          )}
+          )} */}
         </group>
       )}
       {displayState.showAreas && (
         <group name="area-meshes">
-          {Array.from(pathfinder.areaMeshes.entries()).map(([areaId, mesh]) => {
+          {/* {Array.from(pathfinder.areaMeshes.entries()).map(([areaId, mesh]) => {
             // Check if this area is being split in the current preview
             const isBeingSplit =
               editor.edgeDrawingState.isDrawing &&
@@ -624,7 +558,7 @@ export default function NavgraphRenderer({}: {}) {
                 </primitive>
               </group>
             );
-          })}
+          })} */}
         </group>
       )}
       {displayState.showPath && (
@@ -684,7 +618,7 @@ export default function NavgraphRenderer({}: {}) {
       )}
       {displayState.showLegacyNavmesh && (
         <group>
-          {pathfinder.legacyMeshes?.map(({ name, geometry }) => (
+          {/* {pathfinder.legacyMeshes?.map(({ name, geometry }) => (
             <group key={name}>
               <mesh
                 key={name + "x"}
@@ -698,7 +632,7 @@ export default function NavgraphRenderer({}: {}) {
                 />
               </mesh>
             </group>
-          ))}
+          ))} */}
         </group>
       )}
     </group>
