@@ -70,15 +70,15 @@ export function findSmallestPolygonContainingPoint(
   const closestEdge = findClosestEdge(state, clickPoint);
   if (!closestEdge) return null;
 
-  //console.log("Closest edge:", closestEdge, clickPoint);
+  console.log("Closest edge:", closestEdge, clickPoint);
 
   // 2. Determine which endpoint to start from based on click point position
   const leftPoint = determineStartPoint(state, closestEdge, clickPoint);
   const rightPoint =
     leftPoint === closestEdge.from ? closestEdge.to : closestEdge.from;
 
-  //   console.log("Left point:", leftPoint);
-  //   console.log("Right point:", rightPoint);
+  console.log("Left point:", leftPoint);
+  console.log("Right point:", rightPoint);
 
   const polygon = findPolygonFromLeftRightPoint(
     closestEdge.id,
@@ -117,37 +117,95 @@ export function findPolygonFromLeftRightPoint(
   let currentPoint = leftPoint;
   let currentEdge = edgeId;
   const polygon = [currentEdge];
-  const visited = new Set([currentEdge]);
+  const edgeTraversalCount = new Map<string, number>();
+  edgeTraversalCount.set(currentEdge, 1);
   let iterations = 0;
-  const maxIterations = 1000; // Prevent infinite loops
+  const maxIterations = 50; // Prevent infinite loops
 
   while (iterations < maxIterations) {
     iterations++;
 
     // Find the leftmost edge from current point
-    const nextEdge = findLeftmostEdge(state, currentPoint, currentEdge);
-
+    let nextEdge = findLeftmostEdge(
+      state,
+      currentPoint,
+      currentEdge,
+      edgeTraversalCount
+    );
     // console.log("Next edge:", nextEdge);
-    if (!nextEdge) {
-      //no polygon found
-      return [];
+
+    // Debug: show all edges connected to current point
+    const connectedEdges = Object.entries(state.edges).filter(
+      ([_, e]) => e.from === currentPoint || e.to === currentPoint
+    );
+    console.log(
+      `Edges connected to ${currentPoint}:`,
+      connectedEdges.map(([id, _]) => id)
+    );
+
+    // Check if the next edge leads to a dead-end BEFORE adding it to the polygon
+    if (nextEdge) {
+      const nextPoint =
+        nextEdge.from === currentPoint ? nextEdge.to : nextEdge.from;
+      const nextPointEdges = Object.values(state.edges).filter(
+        (e) => e.from === nextPoint || e.to === nextPoint
+      );
+
+      // If the next point has only 1 connection, it's a dead-end
+      if (nextPointEdges.length <= 1) {
+        console.log(
+          `Skipping dead-end edge: ${nextEdge.id} (leads to point with ${nextPointEdges.length} connections)`
+        );
+        nextEdge = null; // Treat as if no edge was found
+      }
     }
 
-    // Check if we've been here before
-    if (visited.has(nextEdge.id)) {
-      //   console.log("Already visited edge:", nextEdge.id, "stopping");
-      break;
+    if (nextEdge == null) {
+      //traverse the current edge in the opposite direction
+      console.log("Backtracking from dead-end at:", currentPoint);
+      const edge = state.edges[currentEdge];
+      currentPoint = edge.from === currentPoint ? edge.to : edge.from;
+      console.log("Backtracked to:", currentPoint);
+
+      // Mark the current edge as traversed (since we're backtracking through it)
+      const backtrackCount = edgeTraversalCount.get(currentEdge) || 0;
+      edgeTraversalCount.set(currentEdge, backtrackCount + 1);
+
+      continue; // Try again from the new position
     }
 
-    polygon.push(nextEdge.id);
-    visited.add(nextEdge.id);
+    // Count edge traversals
+    const currentCount = edgeTraversalCount.get(nextEdge.id) || 0;
+
+    // If we've already traversed this edge twice, skip it (dead-end detected)
+    if (currentCount >= 2) {
+      console.log(`Skipping dead-end edge: ${nextEdge.id}`);
+      continue;
+    }
+
+    edgeTraversalCount.set(nextEdge.id, currentCount + 1);
+    console.log(`Edge ${nextEdge.id} traversal count: ${currentCount + 1}`);
+
+    // Only add edge to polygon on first traversal
+    if (currentCount === 0) {
+      polygon.push(nextEdge.id);
+    }
     currentPoint = nextEdge.from === currentPoint ? nextEdge.to : nextEdge.from;
     currentEdge = nextEdge.id;
 
     // Check if we've returned to the starting point
     if (currentPoint === rightPoint) {
-      //   console.log("Returned to starting point, polygon complete");
-      return polygon;
+      console.log("Returned to starting point, polygon complete");
+
+      // Filter out edges that were traversed multiple times (dead-end trees)
+      const cleanPolygon = polygon.filter((edgeId) => {
+        const traversalCount = edgeTraversalCount.get(edgeId) || 0;
+        return traversalCount === 1; // Only include edges traversed exactly once
+      });
+
+      console.log("Original polygon:", polygon);
+      console.log("Clean polygon:", cleanPolygon);
+      return cleanPolygon;
     }
   }
 
@@ -167,6 +225,19 @@ function findClosestEdge(
     const fromPoint = state.points[edge.from];
     const toPoint = state.points[edge.to];
     if (!fromPoint || !toPoint) continue;
+
+    // Skip edges that have dead-end endpoints
+    const fromPointEdges = Object.values(state.edges).filter(
+      (e) => e.from === edge.from || e.to === edge.from
+    );
+    const toPointEdges = Object.values(state.edges).filter(
+      (e) => e.from === edge.to || e.to === edge.to
+    );
+
+    if (fromPointEdges.length <= 1 || toPointEdges.length <= 1) {
+      console.log(`Skipping dead-end edge: ${edgeId}`);
+      continue;
+    }
 
     const closestPoint = getClosestPointOnLineSegment(
       clickPoint,
@@ -224,7 +295,8 @@ function determineStartPoint(
 function findLeftmostEdge(
   state: NavMap,
   fromPoint: string,
-  previousEdgeId: string
+  previousEdgeId: string,
+  edgeTraversalCount: Map<string, number>
 ): { id: string; from: string; to: string } | null {
   const fromPointData = state.points[fromPoint];
   if (!fromPointData) return null;
@@ -257,6 +329,20 @@ function findLeftmostEdge(
   for (const [edgeId, edge] of Object.entries(state.edges)) {
     if (edgeId === previousEdgeId) continue; // Skip the edge we came from
 
+    // Skip edges that have been traversed more than twice (dead-end edges)
+    const traversalCount = edgeTraversalCount.get(edgeId) || 0;
+    if (traversalCount >= 2) continue;
+
+    // Skip edges that lead to dead-ends (points with only 1 connection)
+    const nextPoint = edge.from === fromPoint ? edge.to : edge.from;
+    const nextPointEdges = Object.values(state.edges).filter(
+      (e) => e.from === nextPoint || e.to === nextPoint
+    );
+    if (nextPointEdges.length <= 1) {
+      console.log(`Skipping dead-end edge in findLeftmostEdge: ${edgeId}`);
+      continue;
+    }
+
     let outgoingDirection: THREE.Vector3;
     if (edge.from === fromPoint) {
       const toPoint = state.points[edge.to];
@@ -287,9 +373,16 @@ function findLeftmostEdge(
         outgoingDirection.z * incomingDirection.z
     );
 
+    console.log(
+      `Edge ${edgeId}: angle=${angle.toFixed(3)}, minAngle=${minAngle.toFixed(
+        3
+      )}`
+    );
+
     if (angle < minAngle) {
       minAngle = angle;
       leftmostEdge = { id: edgeId, from: edge.from, to: edge.to };
+      console.log(`New leftmost edge: ${edgeId}`);
     }
   }
 
