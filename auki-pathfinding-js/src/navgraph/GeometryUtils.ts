@@ -310,3 +310,22 @@ export function buildPolygonFromEdges(
 
   return polygon.length > 2 ? polygon : null;
 }
+
+export function isPointInPolygon(
+  point: THREE.Vector3Like,
+  polygon: THREE.Vector3Like[]
+): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const vi = polygon[i];
+    const vj = polygon[j];
+
+    if (
+      vi.z > point.z !== vj.z > point.z &&
+      point.x < ((vj.x - vi.x) * (point.z - vi.z)) / (vj.z - vi.z) + vi.x
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}

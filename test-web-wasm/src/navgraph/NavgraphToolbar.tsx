@@ -9,7 +9,6 @@ import EyeIcon from "../assets/eye.svg?react";
 import GotuSwitch from "../ui/GotuSwitch";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
 import { useNavgraphEditingState } from "../editing/NavgraphEditingState";
-import { AREA_SPLIT_BEHAVIOR } from "../editing/EdgeDrawingConstants";
 
 export default function NavgraphToolbar() {
   const state = useNavgraphDisplayState();
@@ -165,36 +164,14 @@ export default function NavgraphToolbar() {
               Redo
             </Button>
           </div>
-          <MenuTrigger>
+          {/* <MenuTrigger>
             <Button className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
               Preferences
             </Button>
             <Popover className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5">
-              <ListBox aria-label="User preferences">
-                <ListBoxItem textValue="Split Areas">
-                  <GotuSwitch
-                    isSelected={
-                      editingState.userPreferences.areaSplitBehavior ===
-                      AREA_SPLIT_BEHAVIOR.SPLIT_AREAS
-                    }
-                    onChange={() => {
-                      const newBehavior =
-                        editingState.userPreferences.areaSplitBehavior ===
-                        AREA_SPLIT_BEHAVIOR.SPLIT_AREAS
-                          ? AREA_SPLIT_BEHAVIOR.REMOVE_INTERNAL_EDGES
-                          : AREA_SPLIT_BEHAVIOR.SPLIT_AREAS;
-                      editingState.setUserPreferences({
-                        areaSplitBehavior: newBehavior,
-                      });
-                    }}
-                    ariaLabel="Toggle area split behavior"
-                  >
-                    Split Areas
-                  </GotuSwitch>
-                </ListBoxItem>
-              </ListBox>
+              <ListBox aria-label="User preferences"></ListBox>
             </Popover>
-          </MenuTrigger>
+          </MenuTrigger> */}
         </div>
       </div>
     </>

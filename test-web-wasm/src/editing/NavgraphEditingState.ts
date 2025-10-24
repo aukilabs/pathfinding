@@ -19,11 +19,8 @@ import {
   findNearbyPoint,
   findNearbyEdge,
 } from "./EdgeDrawing";
-import { AreaSplitBehavior, AREA_SPLIT_BEHAVIOR } from "./EdgeDrawingConstants";
 
-export type UserPreferences = {
-  areaSplitBehavior: AreaSplitBehavior;
-};
+export type UserPreferences = {};
 
 type EdgeDrawingState = {
   isDrawing: boolean;
@@ -104,9 +101,7 @@ export const useNavgraphEditingState = create<{
   setSelectedAreas: (areaIds: string[]) => {
     set({ selectedAreas: areaIds });
   },
-  userPreferences: {
-    areaSplitBehavior: AREA_SPLIT_BEHAVIOR.SPLIT_AREAS,
-  },
+  userPreferences: {},
   setUserPreferences: (preferences: Partial<UserPreferences>) => {
     set((state) => ({
       userPreferences: { ...state.userPreferences, ...preferences },
@@ -248,8 +243,7 @@ export const useNavgraphEditingState = create<{
     const result = createEdgeWithIntersections(
       state,
       edgeDrawingState.firstPointPosition,
-      actualEndPosition,
-      userPreferences.areaSplitBehavior
+      actualEndPosition
     );
 
     const operation = {

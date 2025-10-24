@@ -65,13 +65,6 @@ export function findSmallestPolygonContainingPoint(
   state: NavMap,
   clickPoint: THREE.Vector3
 ): string[] | null {
-  return findPolygonByRightHandRule(state, clickPoint);
-}
-
-function findPolygonByRightHandRule(
-  state: NavMap,
-  clickPoint: THREE.Vector3
-): string[] | null {
   //console.log("Finding polygon by right hand rule");
   // 1. Find the closest edge to the click point
   const closestEdge = findClosestEdge(state, clickPoint);
