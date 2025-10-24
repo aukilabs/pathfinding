@@ -63,17 +63,22 @@ export function findExistingAreaContainingPoint(
 
 export function findSmallestPolygonContainingPoint(
   state: NavMap,
-  clickPoint: THREE.Vector3
+  clickPoint: THREE.Vector3Like
 ): string[] | null {
+  const clickPointV3 = new THREE.Vector3(
+    clickPoint.x,
+    clickPoint.y,
+    clickPoint.z
+  );
   //console.log("Finding polygon by right hand rule");
   // 1. Find the closest edge to the click point
-  const closestEdge = findClosestEdge(state, clickPoint);
+  const closestEdge = findClosestEdge(state, clickPointV3);
   if (!closestEdge) return null;
 
   console.log("Closest edge:", closestEdge, clickPoint);
 
   // 2. Determine which endpoint to start from based on click point position
-  const leftPoint = determineStartPoint(state, closestEdge, clickPoint);
+  const leftPoint = determineStartPoint(state, closestEdge, clickPointV3);
   const rightPoint =
     leftPoint === closestEdge.from ? closestEdge.to : closestEdge.from;
 

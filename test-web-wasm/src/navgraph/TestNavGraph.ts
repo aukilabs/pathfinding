@@ -64,10 +64,6 @@ export const TestNavData: NavMap = {
       from: "pInside",
       to: "pLeaf2",
     },
-    eCreateInnerLoop: {
-      from: "pLeaf1",
-      to: "pLeaf2",
-    },
     e57: {
       from: "p37",
       to: "p42",

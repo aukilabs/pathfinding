@@ -8,6 +8,7 @@ import {
 } from "auki-pathfinding";
 import { v4 as uuidv4 } from "uuid";
 import { EdgeWithId } from "./EdgeDrawing";
+import { findSmallestPolygonContainingPoint } from "./AreaFill";
 
 export type NavMapCRDT = {
   readonly state: NavMap;
@@ -186,9 +187,9 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
       } else {
         // Merge multiple areas
         const mergedAreaId = `a${Date.now()}_merged`;
-        const allEdges = new Set<string>();
 
         // Collect all edges from areas that will be merged (excluding the deleted edge)
+        const allEdges = new Set<string>();
         for (const areaId of areasContainingEdge) {
           const area = updatedAreas[areaId];
           for (const edgeId of area.edges) {
@@ -200,10 +201,101 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
           delete updatedAreas[areaId];
         }
 
-        // Add the merged area
-        updatedAreas[mergedAreaId] = {
-          edges: Array.from(allEdges),
-        };
+        // Use polygon detection to find the actual boundary of the merged area
+        let detectedPolygonEdges: string[] | null = null;
+
+        // Use the midpoint of the deleted edge to detect the polygon
+        const fromPoint = state.points[edgeToDelete.from];
+        const toPoint = state.points[edgeToDelete.to];
+        if (fromPoint && toPoint) {
+          const detectionPoint = {
+            x: (fromPoint.x + toPoint.x) / 2,
+            y: (fromPoint.y + toPoint.y) / 2,
+            z: (fromPoint.z + toPoint.z) / 2,
+          };
+
+          const currentState = {
+            points: remainingPointsAfterDelete,
+            edges: remainingEdgesAfterDelete,
+            areas: updatedAreas,
+          };
+
+          // Find the actual polygon boundary using our robust algorithm
+          detectedPolygonEdges = findSmallestPolygonContainingPoint(
+            currentState,
+            detectionPoint
+          );
+        }
+
+        // Define the merged area using detected polygon or fallback to collected edges
+        if (detectedPolygonEdges && detectedPolygonEdges.length >= 3) {
+          updatedAreas[mergedAreaId] = {
+            edges: detectedPolygonEdges,
+          };
+        } else {
+          // Fallback to the original approach if polygon detection fails
+          updatedAreas[mergedAreaId] = {
+            edges: Array.from(allEdges),
+          };
+        }
+
+        // Clean up edges that are inside the merged area
+        const edgesToRemove: string[] = [];
+        const pointsToRemove: string[] = [];
+
+        // Check each edge in the global state to see if its midpoint is inside the merged area
+        for (const [edgeId, edge] of Object.entries(
+          remainingEdgesAfterDelete
+        )) {
+          // Skip edges that are part of the merged area definition itself
+          if (updatedAreas[mergedAreaId].edges.includes(edgeId)) {
+            continue;
+          }
+
+          const fromPoint = remainingPointsAfterDelete[edge.from];
+          const toPoint = remainingPointsAfterDelete[edge.to];
+          if (!fromPoint || !toPoint) continue;
+
+          // Calculate midpoint of the edge
+          const midpoint = {
+            x: (fromPoint.x + toPoint.x) / 2,
+            y: (fromPoint.y + toPoint.y) / 2,
+            z: (fromPoint.z + toPoint.z) / 2,
+          };
+
+          const polygon = buildPolygonFromEdges(
+            updatedAreas[mergedAreaId].edges,
+            {
+              points: remainingPointsAfterDelete,
+              edges: remainingEdgesAfterDelete,
+              areas: updatedAreas,
+            }
+          );
+          // Check if midpoint is inside the merged area
+          if (polygon && isPointInPolygon(midpoint, polygon)) {
+            edgesToRemove.push(edgeId);
+          }
+        }
+
+        // Remove edges that are inside the merged area
+        for (const edgeId of edgesToRemove) {
+          delete remainingEdgesAfterDelete[edgeId];
+        }
+
+        // Find orphaned points (points with no remaining edges)
+        for (const [pointId] of Object.entries(remainingPointsAfterDelete)) {
+          const hasEdges = Object.values(remainingEdgesAfterDelete).some(
+            (edge) => edge.from === pointId || edge.to === pointId
+          );
+          if (!hasEdges) {
+            pointsToRemove.push(pointId);
+          }
+        }
+
+        // Remove orphaned points
+        for (const pointId of pointsToRemove) {
+          delete remainingPointsAfterDelete[pointId];
+        }
       }
 
       return {
