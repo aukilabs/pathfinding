@@ -483,8 +483,26 @@ export default function NavgraphRenderer({}: {}) {
             );
             return (
               <group key={edgeId}>
+                {/* Invisible wider hit area for delete tool */}
+                {editor.currentTool === "deleteEdge" && (
+                  <Line
+                    points={[
+                      [fromPoint.x, fromPoint.y ?? 0, fromPoint.z],
+                      [toPoint.x, toPoint.y ?? 0, toPoint.z],
+                    ]}
+                    linewidth={8}
+                    visible={false}
+                    renderOrder={9}
+                    onClick={(event: React.MouseEvent) => {
+                      event.stopPropagation();
+                      if (editor.currentTool === "deleteEdge") {
+                        editor.deleteEdge(edgeId);
+                      }
+                    }}
+                  />
+                )}
+                {/* Visual line */}
                 <Line
-                  key={edgeId}
                   points={[
                     [fromPoint.x, fromPoint.y ?? 0, fromPoint.z],
                     [toPoint.x, toPoint.y ?? 0, toPoint.z],
@@ -492,19 +510,13 @@ export default function NavgraphRenderer({}: {}) {
                   color={
                     editor.currentTool === "deleteEdge" ? "#FF0000" : "#AA0000"
                   }
-                  linewidth={editor.currentTool === "deleteEdge" ? 2 : 0.75}
+                  linewidth={0.75}
                   dashed={!!edge.dir}
                   dashSize={0.1}
                   gapSize={0.1}
                   depthTest={false}
                   transparent={true}
                   renderOrder={10}
-                  onClick={(event: React.MouseEvent) => {
-                    event.stopPropagation();
-                    if (editor.currentTool === "deleteEdge") {
-                      editor.deleteEdge(edgeId);
-                    }
-                  }}
                 />
                 <Text
                   rotation={[-Math.PI / 2, 0, 0]}
