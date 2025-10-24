@@ -343,14 +343,22 @@ export class Pathfinder {
 
   findPath(
     from: THREE.Vector3Like,
-    to: THREE.Vector3Like
-  ): THREE.Vector3Like[] | null {
+    to: THREE.Vector3Like,
+    fromFloorId: string,
+    toFloorId: string
+  ):
+    | {
+        point: THREE.Vector3Like;
+        fromPointId: string;
+        toPointId: string;
+      }[]
+    | null {
     if (!this._map) {
       return null;
     }
 
-    const fromResult = this.getPathResult(from);
-    const toResult = this.getPathResult(to);
+    const fromResult = this.getPathResult(from, fromFloorId);
+    const toResult = this.getPathResult(to, toFloorId);
     if (!fromResult || !toResult) {
       return null;
     }
@@ -393,18 +401,26 @@ export class Pathfinder {
       toResult,
       from,
       to,
-
-      tempEdgeWeights
+      tempEdgeWeights,
+      fromFloorId,
+      toFloorId
     );
   }
 
-  private getPathResult(position: THREE.Vector3Like): PathResult | null {
-    const areaId = getNavmeshUnderPoint(position, this._areaGroupNMQueries);
+  private getPathResult(
+    position: THREE.Vector3Like,
+    floorId?: string
+  ): PathResult | null {
+    const areaId = getNavmeshUnderPoint(
+      position,
+      this._areaGroupNMQueries,
+      floorId
+    );
     if (areaId) {
       return pathfinding.convertAreaGroupToPathResult(areaId, position);
     }
-    const edge = getNearestPositionOnEdge(this._map, position);
-    const legacy = findClosestPoint(this._legacyNavMeshQuery, position);
+    const edge = getNearestPositionOnEdge(this._map, position, floorId);
+    const legacy = findClosestPoint(this._legacyNavMeshQuery, position); //TODO multiple legacy navmeshes for different floors
     return pathfinding.chooseClosestResult(edge, legacy);
   }
 
@@ -414,9 +430,27 @@ export class Pathfinder {
     toResult: any,
     from: THREE.Vector3Like,
     to: THREE.Vector3Like,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>
-  ): THREE.Vector3Like[] {
-    const fullPath: THREE.Vector3Like[] = [from];
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
+    fromFloorId?: string,
+    toFloorId?: string
+  ): {
+    point: THREE.Vector3Like;
+    fromPointId: string;
+    toPointId: string;
+  }[] {
+    const fullPath: {
+      point: THREE.Vector3Like;
+      fromPointId: string;
+      toPointId: string;
+    }[] = [
+      {
+        point: from,
+        fromPointId: fromFloorId ? `${fromFloorId}/from` : "from",
+        toPointId: fromFloorId
+          ? `${fromFloorId}/from_intermediate`
+          : "from_intermediate",
+      },
+    ];
 
     for (let i = 0; i < graphPath.length - 1; i++) {
       const currentNode = graphPath[i];
@@ -452,22 +486,62 @@ export class Pathfinder {
           chosenConnection = chosenTempConnection;
         }
         if (chosenConnection) {
-          fullPath.push(...chosenConnection.path);
+          const fromPointId =
+            fromFloorId &&
+            (currentNode == constants.FROM_INTERMEDIATE ||
+              currentNode == constants.TO_INTERMEDIATE)
+              ? `${fromFloorId}/${currentNode}`
+              : currentNode;
+
+          const toPointId =
+            toFloorId &&
+            (nextNode == constants.FROM_INTERMEDIATE ||
+              nextNode == constants.TO_INTERMEDIATE)
+              ? `${toFloorId}/${nextNode}`
+              : nextNode;
+          fullPath.push(
+            ...chosenConnection.path.map((point) => ({
+              point,
+              fromPointId: fromPointId,
+              toPointId: toPointId,
+            }))
+          );
           continue;
         }
       }
 
       // Fallback: add single point based on node type
       if (currentNode === constants.FROM_INTERMEDIATE) {
-        fullPath.push(fromResult.position);
+        console.log("from intermediate fall back", fromResult);
+        fullPath.push({
+          point: fromResult.position,
+          fromPointId: fromResult.fromPointId,
+          toPointId: fromResult.toPointId,
+        });
       } else if (currentNode === constants.TO_INTERMEDIATE) {
-        fullPath.push(toResult.position);
+        console.log("to intermediate fall back", toResult);
+        fullPath.push({
+          point: toResult.position,
+          fromPointId: toResult.fromPointId,
+          toPointId: toResult.toPointId,
+        });
       } else {
-        fullPath.push(this.getMapPointInternal(currentNode)!);
+        console.log("final fall back", currentNode);
+        fullPath.push({
+          point: this.getMapPointInternal(currentNode)!,
+          fromPointId: currentNode,
+          toPointId: currentNode,
+        });
       }
     }
 
-    fullPath.push(to);
+    fullPath.push({
+      point: to,
+      fromPointId: toFloorId
+        ? `${toFloorId}/to_intermediate`
+        : "to_intermediate",
+      toPointId: toFloorId ? `${toFloorId}/to` : "to",
+    });
     return fullPath;
   }
 

@@ -8,16 +8,12 @@ export function NavEndPoint({
   visible,
   position,
   setPosition,
-  floorId,
-  setFloorId,
   onContextMenu,
 }: {
   color: string;
   visible: boolean;
-  position: THREE.Vector3;
-  setPosition: (position: THREE.Vector3) => void;
-  floorId: string;
-  setFloorId: (floorId: string) => void;
+  position: THREE.Vector3Like;
+  setPosition: (position: THREE.Vector3Like) => void;
   onContextMenu: (event: ThreeEvent<MouseEvent>) => void;
 }) {
   const ref = useRef<THREE.Object3D>(null);
@@ -33,10 +29,11 @@ export function NavEndPoint({
       <DragControls
         axisLock="y"
         onDragEnd={() => {
+          console.log("onDragEnd called");
           if (ref.current) {
-            const worldPos = new THREE.Vector3();
-            ref.current.getWorldPosition(worldPos);
-            setPosition(worldPos);
+            console.log("ref.current exists, position:", ref.current.position);
+            // Use local position instead of world position
+            setPosition(ref.current.position.clone());
           }
         }}
       >

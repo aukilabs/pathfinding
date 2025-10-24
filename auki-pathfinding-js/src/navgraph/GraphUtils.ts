@@ -95,7 +95,8 @@ export function getEdgeWeight(
 
 export function getNearestPositionOnEdge(
   map: NavMap,
-  position: THREE.Vector3Like
+  position: THREE.Vector3Like,
+  floorId?: string
 ): {
   position: THREE.Vector3Like;
   edgeId: string;
@@ -111,6 +112,7 @@ export function getNearestPositionOnEdge(
 
   // Check all edges
   Object.entries(map.edges).forEach(([edgeId, edge]) => {
+    if (floorId && edgeId.split("/")[0] !== floorId) return;
     const fromPoint = map.points[edge.from];
     const toPoint = map.points[edge.to];
 

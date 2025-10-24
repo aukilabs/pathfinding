@@ -46,12 +46,18 @@ export function mergeFloorMaps(
   });
 
   //add inter-floor links
-  floorData.links.forEach((link) => {
+  floorData.links.forEach((link, index) => {
     const fromKey = getFloorItemKey(link.fromFloorId, link.fromPointId);
     const toKey = getFloorItemKey(link.toFloorId, link.toPointId);
-    mergedNav.edges[getFloorItemKey(link.fromFloorId, link.fromPointId)] = {
+
+    // Create unique edge ID for inter-floor links
+    const linkEdgeId = `link_${link.fromFloorId}_${link.fromPointId}_to_${link.toFloorId}_${link.toPointId}`;
+
+    mergedNav.edges[linkEdgeId] = {
       from: fromKey,
       to: toKey,
+      weightMultiplier: 0,
+      dir: link.direction,
     };
   });
 

@@ -1,7 +1,7 @@
 import ThreeCanvas from "./threed/ThreeCanvas";
 import NavgraphToolbar from "./navgraph/NavgraphToolbar";
-import { Grid } from "@react-three/drei";
-import { Suspense, useMemo, useState, useEffect } from "react";
+import { Grid, Line } from "@react-three/drei";
+import { Suspense, useMemo, useState, useEffect, useCallback } from "react";
 import NavgraphRenderer from "./navgraph/NavgraphRenderer";
 import { useMultiFloorState } from "./multifloor/MultifloorState";
 import { FloorEditingProvider } from "./multifloor/FloorEditingProvider";
@@ -26,11 +26,23 @@ function App() {
   const [floorCRDTs, setFloorCRDTs] =
     useState<Record<string, NavMapCRDT>>(initialFloorCRDTs);
 
+  const [path, setPath] = useState<
+    | {
+        point: THREE.Vector3Like;
+        fromPointId: string;
+        toPointId: string;
+      }[]
+    | null
+  >(null);
+
   // Handle CRDT updates from floors
-  const updateFloorCRDT = (floorId: string, newCRDT: NavMapCRDT) => {
-    setFloorCRDTs((prev) => ({ ...prev, [floorId]: newCRDT }));
-    console.log("Updated floor CRDT:", floorId, newCRDT);
-  };
+  const updateFloorCRDT = useCallback(
+    (floorId: string, newCRDT: NavMapCRDT) => {
+      setFloorCRDTs((prev) => ({ ...prev, [floorId]: newCRDT }));
+      console.log("Updated floor CRDT:", floorId, newCRDT);
+    },
+    []
+  );
 
   const [pathfinderInitialized, setPathfinderInitialized] = useState(false);
   const pathfinder = useMemo(() => {
@@ -43,6 +55,7 @@ function App() {
 
   useEffect(() => {
     if (!pathfinderInitialized) return;
+    console.log("Loading pathfinder");
     const mergedNav = mergeFloorMaps(floorData, floorCRDTs);
     pathfinder.load(mergedNav, []);
   }, [floorCRDTs, pathfinderInitialized]);
@@ -50,12 +63,34 @@ function App() {
   const [start, setStart] = useState<{
     floorId: string;
     position: THREE.Vector3Like;
-  }>({ floorId: "f1", position: { x: 4, y: 0, z: 0 } });
+  }>({ floorId: "f1", position: { x: 2, y: 0, z: -20 } });
 
   const [end, setEnd] = useState<{
     floorId: string;
     position: THREE.Vector3Like;
-  }>({ floorId: "f1", position: { x: -5, y: 0, z: -4.5 } });
+  }>({ floorId: "f2", position: { x: -7, y: 0, z: -20 } });
+
+  useEffect(() => {
+    if (!pathfinder.loaded) return;
+    console.log(
+      "Finding path from",
+      start.position,
+      "to",
+      end.position,
+      "on floors",
+      start.floorId,
+      "and",
+      end.floorId
+    );
+    const path = pathfinder.findPath(
+      start.position,
+      end.position,
+      start.floorId,
+      end.floorId
+    );
+    console.log("Path:", path);
+    setPath(path);
+  }, [floorCRDTs, start, end]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -155,8 +190,6 @@ function App() {
                       setPosition={(pos) =>
                         setStart({ ...start, position: pos })
                       }
-                      floorId={floor.id}
-                      setFloorId={(id) => setStart({ ...start, floorId: id })}
                       onContextMenu={(event) =>
                         handleContextMenu(event, "start")
                       }
@@ -172,12 +205,45 @@ function App() {
                         )
                       }
                       setPosition={(pos) => setEnd({ ...end, position: pos })}
-                      floorId={floor.id}
-                      setFloorId={(id) => setEnd({ ...end, floorId: id })}
                       onContextMenu={(event: ThreeEvent<MouseEvent>) =>
                         handleContextMenu(event, "end")
                       }
                     />
+                    {path &&
+                      path.length > 1 &&
+                      path.map((currentPoint, index) => {
+                        if (index === path.length - 1) return null; // Skip last point
+                        console.log("currentPoint", currentPoint);
+                        if (currentPoint.toPointId.split("/")[0] !== floor.id)
+                          return null;
+                        if (currentPoint.fromPointId.split("/")[0] !== floor.id)
+                          return null;
+                        const nextPoint = path[index + 1];
+
+                        return (
+                          <Line
+                            key={`path-${index}`}
+                            points={[
+                              [
+                                currentPoint.point.x,
+                                currentPoint.point.y ?? 0,
+                                currentPoint.point.z,
+                              ],
+                              [
+                                nextPoint.point.x,
+                                nextPoint.point.y ?? 0,
+                                nextPoint.point.z,
+                              ],
+                            ]}
+                            color="#007700"
+                            linewidth={3}
+                            dashed={false}
+                            depthTest={false}
+                            transparent={true}
+                            renderOrder={15}
+                          />
+                        );
+                      })}
                   </ThreeCanvas>
                 </div>
                 <div className="absolute top-0 left-1/2 transform -translate-x-1/2 ">
