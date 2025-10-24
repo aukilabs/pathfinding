@@ -8,11 +8,11 @@ import {
 import EyeIcon from "../assets/eye.svg?react";
 import GotuSwitch from "../ui/GotuSwitch";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
-import { useNavgraphEditingState } from "../editing/NavgraphEditingState";
+import { useFloorEditingState } from "../multifloor/FloorEditingProvider";
 
 export default function NavgraphToolbar() {
   const state = useNavgraphDisplayState();
-  const editingState = useNavgraphEditingState();
+  const editingState = useFloorEditingState();
 
   const tools = [
     {
@@ -39,11 +39,11 @@ export default function NavgraphToolbar() {
 
   return (
     <>
-      <div className="absolute bottom-5 left-1/2 transform -translate-x-1/2 flex gap-2.5">
-        <div className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
+      <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1">
+        <div className="bg-white rounded-md shadow-gotu border border-gray-300 p-1 flex flex-row gap-1 items-center">
           <MenuTrigger aria-label="Visibility">
             <Button
-              className="text-gotu-disabled enabled:text-[#101010] enabled:cursor-pointer p-2"
+              className="text-gotu-disabled enabled:text-[#101010] enabled:cursor-pointer p-1"
               aria-label="Toggle visibility options"
             >
               <EyeIcon />
@@ -133,11 +133,11 @@ export default function NavgraphToolbar() {
               </ListBox>
             </Popover>
           </MenuTrigger>
-          <div className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
+          <div className="bg-white rounded-md shadow-gotu border border-gray-300 p-1 flex flex-row gap-1 items-center">
             {tools.map((tool) => (
               <Button
                 key={tool.tool}
-                className={`px-3 py-1 rounded ${
+                className={`px-2 py-1 text-xs rounded ${
                   editingState.currentTool === tool.tool
                     ? "bg-blue-500 text-white"
                     : "bg-gray-200"
@@ -148,16 +148,16 @@ export default function NavgraphToolbar() {
               </Button>
             ))}
           </div>
-          <div className="bg-white rounded-10 shadow-gotu border border-gray-300 p-2.5 flex flex-row gap-2.5 items-center">
+          <div className="bg-white rounded-md shadow-gotu border border-gray-300 p-1 flex flex-row gap-1 items-center">
             <Button
-              className="px-3 py-1 rounded bg-gray-200 disabled:opacity-50"
+              className="px-2 py-1 text-xs rounded bg-gray-200 disabled:opacity-50"
               onPress={() => editingState.undo()}
               isDisabled={editingState.crdt.operations.length === 0}
             >
               Undo
             </Button>
             <Button
-              className="px-3 py-1 rounded bg-gray-200 disabled:opacity-50"
+              className="px-2 py-1 text-xs rounded bg-gray-200 disabled:opacity-50"
               onPress={() => editingState.redo()}
               isDisabled={editingState.crdt.redoStack.length === 0}
             >

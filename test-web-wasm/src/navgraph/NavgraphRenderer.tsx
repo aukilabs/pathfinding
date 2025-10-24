@@ -8,7 +8,7 @@ import * as constants from "auki-pathfinding";
 import { createMeshes } from "./TestLegacyNavmesh";
 import { initialize, add } from "auki-pathfinding/wasm";
 import { useThree } from "@react-three/fiber";
-import { useNavgraphEditingState } from "../editing/NavgraphEditingState";
+import { useFloorEditingState } from "../multifloor/FloorEditingProvider";
 import { OrbitControls } from "@react-three/drei";
 
 initialize().then(() => {
@@ -19,7 +19,7 @@ initialize().then(() => {
 
 export default function NavgraphRenderer({}: {}) {
   const displayState = useNavgraphDisplayState();
-  const editor = useNavgraphEditingState();
+  const editor = useFloorEditingState();
   const [path, setPath] = useState<THREE.Vector3Like[] | null>(null);
   const [start, setStart] = useState<THREE.Vector3Like>({ x: 4, y: 0, z: 0 });
   const [end, setEnd] = useState<THREE.Vector3Like>({ x: -5, y: 0, z: -4.5 });
@@ -113,13 +113,18 @@ export default function NavgraphRenderer({}: {}) {
   );
 
   const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
   // Add this function to NavgraphRenderer.tsx
   const getIntersectionFromClick = useCallback(
     (event: React.MouseEvent) => {
-      // Get mouse coordinates normalized to [-1, 1]
+      // Get the canvas element's bounding rectangle
+      const canvas = gl.domElement;
+      const rect = canvas.getBoundingClientRect();
+
+      // Get mouse coordinates normalized to [-1, 1] relative to the canvas
       const mouse = new THREE.Vector2();
-      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
       // Create raycaster
       const raycaster = new THREE.Raycaster();
@@ -135,7 +140,7 @@ export default function NavgraphRenderer({}: {}) {
 
       return null;
     },
-    [camera]
+    [camera, gl]
   );
 
   const handleEmptySpaceClick = useCallback(
