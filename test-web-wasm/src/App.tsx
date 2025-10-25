@@ -179,6 +179,7 @@ function App() {
                     {/* Add NavEndPoints for this floor */}
                     <NavEndPoint
                       color="cyan"
+                      name="Start"
                       visible={start.floorId === floor.id}
                       position={
                         new THREE.Vector3(
@@ -196,6 +197,7 @@ function App() {
                     />
                     <NavEndPoint
                       color="blue"
+                      name="End"
                       visible={end.floorId === floor.id}
                       position={
                         new THREE.Vector3(

@@ -38,7 +38,7 @@ export const useMultiFloorState = create<MultiFloorState>()((set) => ({
       {
         fromFloorId: "f1",
         toFloorId: "f2",
-        fromPointId: "p42",
+        fromPointId: "pInside",
         toPointId: "pInside",
         weight: 5,
         direction: 0,

@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { DragControls, Line, Text } from "@react-three/drei";
-import { Pathfinder } from "auki-pathfinding";
-import { NavMeshHelper } from "@recast-navigation/three";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
-import * as constants from "auki-pathfinding";
 import { createMeshes } from "./TestLegacyNavmesh";
 import { initialize, add } from "auki-pathfinding/wasm";
 import { useThree } from "@react-three/fiber";
 import { useFloorEditingState } from "../multifloor/FloorEditingProvider";
-import { OrbitControls } from "@react-three/drei";
+import { Line, MapControls, Text } from "@react-three/drei";
 
 initialize().then(() => {
   console.log("WASM initialized");
@@ -227,7 +223,7 @@ export default function NavgraphRenderer({}: {}) {
 
   return (
     <group>
-      <OrbitControls enabled={!editor.dragState.isDragging} makeDefault />
+      <MapControls enabled={!editor.dragState.isDragging} makeDefault />
       <mesh
         position={[0, -0.1, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
