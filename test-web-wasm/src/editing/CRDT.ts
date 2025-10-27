@@ -104,9 +104,74 @@ const applyOperationToState = (state: NavMap, operation: Operation): NavMap => {
       } = state.edges;
       return { ...state, edges: remainingEdgesAfterEdgeRemoval };
     case "setArea":
+      // Update the area
+      const newAreasWithArea = {
+        ...state.areas,
+        [operation.data.id]: operation.data.area,
+      };
+
+      // Build polygon from edges to check if edges are inside
+      const polygon = buildPolygonFromEdges(operation.data.area.edges, {
+        points: state.points,
+        edges: state.edges,
+        areas: newAreasWithArea,
+      });
+
+      // Find edges that are inside the new area
+      const edgesToRemove: string[] = [];
+      const pointsToRemove: string[] = [];
+
+      // Check each edge in the global state to see if its midpoint is inside the area
+      for (const [edgeId, edge] of Object.entries(state.edges)) {
+        // Skip edges that are part of the area definition itself
+        if (operation.data.area.edges.includes(edgeId)) {
+          continue;
+        }
+
+        const fromPoint = state.points[edge.from];
+        const toPoint = state.points[edge.to];
+        if (!fromPoint || !toPoint) continue;
+
+        // Calculate midpoint of the edge
+        const midpoint = {
+          x: (fromPoint.x + toPoint.x) / 2,
+          y: (fromPoint.y + toPoint.y) / 2,
+          z: (fromPoint.z + toPoint.z) / 2,
+        };
+
+        // Check if midpoint is inside the area
+        if (polygon && isPointInPolygon(midpoint, polygon)) {
+          edgesToRemove.push(edgeId);
+        }
+      }
+
+      // Remove edges that are inside the area
+      const { ...remainingEdges } = state.edges;
+      for (const edgeId of edgesToRemove) {
+        delete remainingEdges[edgeId];
+      }
+
+      // Find orphaned points (points with no remaining edges)
+      for (const [pointId] of Object.entries(state.points)) {
+        const hasEdges = Object.values(remainingEdges).some(
+          (edge) => edge.from === pointId || edge.to === pointId
+        );
+        if (!hasEdges) {
+          pointsToRemove.push(pointId);
+        }
+      }
+
+      // Remove orphaned points
+      const { ...remainingPoints } = state.points;
+      for (const pointId of pointsToRemove) {
+        delete remainingPoints[pointId];
+      }
+
       return {
         ...state,
-        areas: { ...state.areas, [operation.data.id]: operation.data.area },
+        points: remainingPoints,
+        edges: remainingEdges,
+        areas: newAreasWithArea,
       };
     case "removeArea":
       const { [operation.data.id]: removedArea, ...remainingAreas } =
