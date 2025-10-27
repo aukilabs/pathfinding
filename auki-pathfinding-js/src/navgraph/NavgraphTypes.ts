@@ -12,7 +12,45 @@ export type Area = { edges: string[] };
 export type Points = Record<string, Point>;
 export type Edges = Record<string, Edge>;
 export type Areas = Record<string, Area>;
+
+export type ReadOnlyPoints = Readonly<{
+  [key: string]: Readonly<Point>;
+}>;
+
+export type ReadOnlyEdges = Readonly<{
+  [key: string]: Readonly<Edge>;
+}>;
+
+export type ReadOnlyAreas = Readonly<{
+  [key: string]: Readonly<{ edges: Readonly<string[]> }>;
+}>;
 export type NavMap = { points: Points; edges: Edges; areas: Areas };
+export type ReadOnlyNavMap = Readonly<{
+  points: ReadOnlyPoints;
+  edges: ReadOnlyEdges;
+  areas: ReadOnlyAreas;
+}>;
+
+// Floor metadata for a navigation map
+export type FloorNavMap = {
+  floorId: string;
+  navMap: NavMap;
+};
+
+// Multi-floor pathfinding input
+export type MultiFloorPathInput = {
+  floors: FloorNavMap[];
+  links?: InterFloorLink[]; // Links between floors (stairs, elevators, etc.)
+};
+
+export type InterFloorLink = {
+  fromFloorId: string;
+  toFloorId: string;
+  fromPointId: string;
+  toPointId: string;
+  weight: number;
+  direction: EdgeDirection;
+};
 
 // Enhanced edge weight information
 export type EdgeWeightInfo = {

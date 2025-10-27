@@ -1,12 +1,15 @@
 import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
-import { NavMap, EdgeWeightInfo } from "./NavgraphTypes";
+import { NavMap, EdgeWeightInfo, ReadOnlyNavMap } from "./NavgraphTypes";
 import { NavMeshQuery } from "recast-navigation";
 import * as recastUtils from "./RecastUtils";
 import { createEdgeWeightKey } from "./Constants";
 
-export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
+export function getAreasContainingEdge(
+  map: ReadOnlyNavMap,
+  edgeId: string
+): string[] {
   if (!map) return [];
 
   return Object.entries(map.areas)
@@ -15,7 +18,7 @@ export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
 }
 
 export function findExitPointsForGroup(
-  map: NavMap,
+  map: ReadOnlyNavMap,
   areaGroupId: string,
   areaIds: string[],
   legacyNavMeshQuery?: NavMeshQuery | null
@@ -95,8 +98,7 @@ export function getEdgeWeight(
 
 export function getNearestPositionOnEdge(
   map: NavMap,
-  position: THREE.Vector3Like,
-  floorId?: string
+  position: THREE.Vector3Like
 ): {
   position: THREE.Vector3Like;
   edgeId: string;
@@ -112,7 +114,6 @@ export function getNearestPositionOnEdge(
 
   // Check all edges
   Object.entries(map.edges).forEach(([edgeId, edge]) => {
-    if (floorId && edgeId.split("/")[0] !== floorId) return;
     const fromPoint = map.points[edge.from];
     const toPoint = map.points[edge.to];
 

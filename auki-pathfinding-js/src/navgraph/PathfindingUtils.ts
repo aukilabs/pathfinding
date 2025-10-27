@@ -6,6 +6,15 @@ import {
   AreaGroupPathResult,
 } from "./NavgraphTypes";
 
+export function getFloorItemKey(floorId: string, itemId: string) {
+  return `${floorId}/${itemId}`;
+}
+
+export function getFloorAndItemFromKey(id: string) {
+  const parts = id.split("/");
+  return { floorId: parts[0], itemId: parts[1] };
+}
+
 export function chooseClosestResult(
   edgeResult: {
     position: THREE.Vector3Like;

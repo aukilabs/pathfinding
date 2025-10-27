@@ -2,7 +2,7 @@ import { NavMap } from "auki-pathfinding";
 import { NavMapCRDT } from "../editing/CRDT";
 import { FloorMetadata } from "./MultifloorState";
 
-function getFloorItemKey(floorId: string, itemId: string) {
+export function getFloorItemKey(floorId: string, itemId: string) {
   return `${floorId}/${itemId}`;
 }
 

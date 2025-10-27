@@ -4,15 +4,13 @@ import * as constants from "./Constants";
 
 export function getNavmeshUnderPoint(
   point: THREE.Vector3Like,
-  navMeshQueries: Map<string, NavMeshQuery>,
-  floorId?: string
+  navMeshQueries: Map<string, NavMeshQuery>
 ): string | null {
   // Use NavMesh query to find nearest point on surface
   const pointV3 = new THREE.Vector3(point.x, point.y, point.z);
 
   try {
     for (const [areaGroupId, areaGroupQuery] of navMeshQueries) {
-      if (floorId && areaGroupId.split("/")[0] !== floorId) continue;
       const result = (areaGroupQuery as NavMeshQuery).findClosestPoint(
         pointV3,
         {

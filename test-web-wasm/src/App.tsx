@@ -12,8 +12,8 @@ import { TestNavData } from "./navgraph/TestNavGraph";
 import { NavEndPoint } from "./navgraph/NavEndPoint";
 import { FloorSelectionContextMenu } from "./navgraph/FloorSelectionContextMenu";
 import * as THREE from "three";
-import { mergeFloorMaps } from "./multifloor/MergeFloorMaps";
 import { ThreeEvent } from "@react-three/fiber";
+import { FloorData } from "../../auki-pathfinding-js/dist/navgraph/FloorData";
 
 const initialFloorCRDTs: Record<string, NavMapCRDT> = {
   f1: createNavMapCRDT({ ...TestNavData }, "floor-f1"),
@@ -47,7 +47,7 @@ function App() {
   const [pathfinderInitialized, setPathfinderInitialized] = useState(false);
   const pathfinder = useMemo(() => {
     const pathfinder = new Pathfinder({ maxOffGraphDistance: 10 });
-    pathfinder.initialize().then(() => {
+    pathfinder.initializeRecast().then(() => {
       setPathfinderInitialized(true);
     });
     return pathfinder;
@@ -55,10 +55,21 @@ function App() {
 
   useEffect(() => {
     if (!pathfinderInitialized) return;
-    console.log("Loading pathfinder");
-    const mergedNav = mergeFloorMaps(floorData, floorCRDTs);
-    pathfinder.load(mergedNav, []);
-  }, [floorCRDTs, pathfinderInitialized]);
+
+    // Convert CRDTs to the format expected by loadMultiFloor
+    const floorNavMaps = Object.entries(floorCRDTs).reduce(
+      (acc, [floorId, crdt]) => ({
+        ...acc,
+        [floorId]: new FloorData(crdt.state, []),
+      }),
+      {}
+    );
+
+    pathfinder.loadMultifloor({
+      data: floorNavMaps,
+      links: floorData.links,
+    });
+  }, [floorCRDTs, pathfinderInitialized, floorData.links]);
 
   const [start, setStart] = useState<{
     floorId: string;
@@ -74,13 +85,13 @@ function App() {
     if (!pathfinder.loaded) return;
     console.log(
       "Finding path from",
+      start.floorId,
+      "/",
       start.position,
       "to",
-      end.position,
-      "on floors",
-      start.floorId,
-      "and",
-      end.floorId
+      end.floorId,
+      "/",
+      end.position
     );
     const path = pathfinder.findPath(
       start.position,
@@ -215,7 +226,7 @@ function App() {
                       path.length > 1 &&
                       path.map((currentPoint, index) => {
                         if (index === path.length - 1) return null; // Skip last point
-                        console.log("currentPoint", currentPoint);
+
                         if (currentPoint.toPointId.split("/")[0] !== floor.id)
                           return null;
                         if (currentPoint.fromPointId.split("/")[0] !== floor.id)
