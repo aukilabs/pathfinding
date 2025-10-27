@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
-import { createMeshes } from "./TestLegacyNavmesh";
 import { initialize, add } from "auki-pathfinding/wasm";
 import { useThree } from "@react-three/fiber";
 import { useFloorEditingState } from "../multifloor/FloorEditingProvider";
 import { Line, MapControls, Text } from "@react-three/drei";
+import { useFloorData } from "../multifloor/FloorDataProvider";
+import { createEdgeWeightKey } from "auki-pathfinding";
 
 initialize().then(() => {
   console.log("WASM initialized");
@@ -16,18 +17,8 @@ initialize().then(() => {
 export default function NavgraphRenderer({}: {}) {
   const displayState = useNavgraphDisplayState();
   const editor = useFloorEditingState();
+  const floorData = useFloorData();
   const [path, setPath] = useState<THREE.Vector3Like[] | null>(null);
-
-  const startRef = useRef<THREE.Object3D>(null);
-  const endRef = useRef<THREE.Object3D>(null);
-
-  const legacyNavmeshMeshes = useMemo(() => {
-    return createMeshes();
-  }, [createMeshes]);
-
-  useEffect(() => {
-    console.log("editor.crdt.state", editor.crdt.state);
-  }, [editor.crdt.state]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -139,21 +130,6 @@ export default function NavgraphRenderer({}: {}) {
     ]
   );
 
-  // Get adjacency list for visualization
-  const adjacencyList = new Map();
-  // const adjacencyList = useMemo(() => {
-  //   if (!pathfinder.loaded) return new Map();
-  //   return pathfinder.adjacencyListForVisualization;
-  // }, [pathfinder, pathfinder.loaded, pathfinder.adjacencyListForVisualization]);
-
-  const navmeshHelpers = new Map();
-  // const navmeshHelpers = useCallback(
-  //   (id: string) => {
-  //     return new NavMeshHelper(pathfinder.navmeshes.get(id)!);
-  //   },
-  //   [pathfinder.navmeshes]
-  // );
-
   const handleMouseMove = useCallback(
     (event: React.MouseEvent) => {
       if (editor.edgeDrawingState.isDrawing) {
@@ -234,13 +210,6 @@ export default function NavgraphRenderer({}: {}) {
         <planeGeometry args={[100, 100]} />
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
-      {/* {displayState.showNavmesh && (
-        <group name="navmesh">
-          {Array.from(pathfinder.navmeshes.entries()).map(([id, _]) => {
-            return <primitive key={id} object={navmeshHelpers(id)} />;
-          })}
-        </group>
-      )} */}
       {displayState.showPoints && (
         <group name="points">
           {Object.entries(editor.crdt.state.points).map(([pointId, point]) => (
@@ -470,31 +439,49 @@ export default function NavgraphRenderer({}: {}) {
       {/* Visualize adjacency list connections */}
       {displayState.showAdjacencyList && (
         <group name="adjacency-list">
-          {/* {Array.from(adjacencyList.entries()).map(([fromPointId, neighbors]) =>
-            neighbors.map((toPointId: string, i: number) => {
-              const fromPoint = editor.crdt.state.points[fromPointId];
-              const toPoint = editor.crdt.state.points[toPointId];
+          {Array.from(floorData.adjacencies.entries()).map(
+            ([fromPointId, neighbors]) =>
+              neighbors.map((toPointId: string, i: number) => {
+                const fromPoint = editor.crdt.state.points[fromPointId];
+                const toPoint = editor.crdt.state.points[toPointId];
 
-              if (!fromPoint || !toPoint) return null;
+                if (!fromPoint || !toPoint) return null;
 
-              const edgeKey = constants.createEdgeWeightKey(
-                fromPointId,
-                toPointId
-              );
-              const connections = pathfinder.edgeWeights.get(edgeKey);
-              if (connections && connections.length > 0) {
-                // Find the connection with minimum weight (what Dijkstra would choose)
-                const chosenConnection = connections.reduce((min, conn) =>
-                  conn.weight < min.weight ? conn : min
-                );
-                const path = chosenConnection.path;
+                const edgeKey = createEdgeWeightKey(fromPointId, toPointId);
+                const connections = floorData.edgeWeights.get(edgeKey);
+                if (connections && connections.length > 0) {
+                  // Find the connection with minimum weight (what Dijkstra would choose)
+                  const chosenConnection = connections.reduce((min, conn) =>
+                    conn.weight < min.weight ? conn : min
+                  );
+                  const path = chosenConnection.path;
+                  return (
+                    <Line
+                      key={`adj-${fromPointId}-${toPointId}-${i}`}
+                      points={
+                        path?.map((point) => [
+                          point.x,
+                          point.y ?? 0,
+                          point.z,
+                        ]) ?? []
+                      }
+                      color="#00AAFF"
+                      linewidth={2}
+                      dashed={false}
+                      depthTest={false}
+                      transparent={true}
+                      renderOrder={5}
+                    />
+                  );
+                }
+
                 return (
                   <Line
                     key={`adj-${fromPointId}-${toPointId}-${i}`}
-                    points={
-                      path?.map((point) => [point.x, point.y ?? 0, point.z]) ??
-                      []
-                    }
+                    points={[
+                      [fromPoint.x, (fromPoint.y ?? 0) + 0.1, fromPoint.z],
+                      [toPoint.x, (toPoint.y ?? 0) + 0.1, toPoint.z],
+                    ]}
                     color="#00AAFF"
                     linewidth={2}
                     dashed={false}
@@ -503,58 +490,43 @@ export default function NavgraphRenderer({}: {}) {
                     renderOrder={5}
                   />
                 );
-              }
-
-              return (
-                <Line
-                  key={`adj-${fromPointId}-${toPointId}-${i}`}
-                  points={[
-                    [fromPoint.x, (fromPoint.y ?? 0) + 0.1, fromPoint.z],
-                    [toPoint.x, (toPoint.y ?? 0) + 0.1, toPoint.z],
-                  ]}
-                  color="#00AAFF"
-                  linewidth={2}
-                  dashed={false}
-                  depthTest={false}
-                  transparent={true}
-                  renderOrder={5}
-                />
-              );
-            })
-          )} */}
+              })
+          )}
         </group>
       )}
       {displayState.showAreas && (
         <group name="area-meshes">
-          {/* {Array.from(pathfinder.areaMeshes.entries()).map(([areaId, mesh]) => {
-            // Check if this area is being split in the current preview
-            const isBeingSplit =
-              editor.edgeDrawingState.isDrawing &&
-              editor.mousePosition &&
-              (() => {
-                const preview = editor.getEdgeDrawingPreview(
-                  editor.mousePosition
-                );
-                return (
-                  preview?.areaSplits.some(
-                    (split) => split.areaId === areaId
-                  ) || false
-                );
-              })();
+          {Array.from(floorData.getAreaMeshes().entries()).map(
+            ([areaId, mesh]) => {
+              // Check if this area is being split in the current preview
+              const isBeingSplit =
+                editor.edgeDrawingState.isDrawing &&
+                editor.mousePosition &&
+                (() => {
+                  const preview = editor.getEdgeDrawingPreview(
+                    editor.mousePosition
+                  );
+                  return (
+                    preview?.areaSplits.some(
+                      (split) => split.areaId === areaId
+                    ) || false
+                  );
+                })();
 
-            return (
-              <group key={areaId}>
-                <primitive object={mesh} onPointerOver={() => {}}>
-                  <meshStandardMaterial
-                    color={isBeingSplit ? "#ff6600" : "red"}
-                    depthTest={false}
-                    opacity={0.5}
-                    transparent={true}
-                  />
-                </primitive>
-              </group>
-            );
-          })} */}
+              return (
+                <group key={areaId}>
+                  <primitive object={mesh} onPointerOver={() => {}}>
+                    <meshStandardMaterial
+                      color={isBeingSplit ? "#ff6600" : "red"}
+                      depthTest={false}
+                      opacity={0.5}
+                      transparent={true}
+                    />
+                  </primitive>
+                </group>
+              );
+            }
+          )}
         </group>
       )}
       {displayState.showPath && (
@@ -614,7 +586,7 @@ export default function NavgraphRenderer({}: {}) {
       )}
       {displayState.showLegacyNavmesh && (
         <group>
-          {/* {pathfinder.legacyMeshes?.map(({ name, geometry }) => (
+          {/* {floorData.getLegacyNavmesh()?.map(({ name, geometry }) => (
             <group key={name}>
               <mesh
                 key={name + "x"}

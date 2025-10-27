@@ -515,25 +515,6 @@ export class Pathfinder {
       ]);
     });
 
-    /*
-     floorData.links.forEach((link, index) => {
-    const fromKey = getFloorItemKey(link.fromFloorId, link.fromPointId);
-    const toKey = getFloorItemKey(link.toFloorId, link.toPointId);
-
-    // Create unique edge ID for inter-floor links
-    const linkEdgeId = `link_${link.fromFloorId}_${link.fromPointId}_to_${link.toFloorId}_${link.toPointId}`;
-
-    mergedNav.edges[linkEdgeId] = {
-      from: fromKey,
-      to: toKey,
-      weightMultiplier: 0,
-      dir: link.direction,
-    };
-  }); */
-
-    console.log("mergedAdjacencies", mergedAdjacencies);
-    console.log("mergedEdgeWeights", mergedEdgeWeights);
-
     return { mergedAdjacencies, mergedEdgeWeights };
   }
 

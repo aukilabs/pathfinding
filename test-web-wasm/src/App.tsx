@@ -3,17 +3,20 @@ import NavgraphToolbar from "./navgraph/NavgraphToolbar";
 import { Grid, Line } from "@react-three/drei";
 import { Suspense, useMemo, useState, useEffect, useCallback } from "react";
 import NavgraphRenderer from "./navgraph/NavgraphRenderer";
-import { useMultiFloorState } from "./multifloor/MultifloorState";
+import {
+  FloorMetadata,
+  useMultiFloorState,
+} from "./multifloor/MultifloorState";
 import { FloorEditingProvider } from "./multifloor/FloorEditingProvider";
 import { Button } from "react-aria-components";
-import { Pathfinder } from "auki-pathfinding";
+import { Pathfinder, FloorData } from "auki-pathfinding";
 import { NavMapCRDT, createNavMapCRDT } from "./editing/CRDT";
 import { TestNavData } from "./navgraph/TestNavGraph";
 import { NavEndPoint } from "./navgraph/NavEndPoint";
 import { FloorSelectionContextMenu } from "./navgraph/FloorSelectionContextMenu";
 import * as THREE from "three";
 import { ThreeEvent } from "@react-three/fiber";
-import { FloorData } from "../../auki-pathfinding-js/dist/navgraph/FloorData";
+import { FloorDataProvider } from "./multifloor/FloorDataProvider";
 
 const initialFloorCRDTs: Record<string, NavMapCRDT> = {
   f1: createNavMapCRDT({ ...TestNavData }, "floor-f1"),
@@ -26,14 +29,12 @@ function App() {
   const [floorCRDTs, setFloorCRDTs] =
     useState<Record<string, NavMapCRDT>>(initialFloorCRDTs);
 
-  const [path, setPath] = useState<
-    | {
-        point: THREE.Vector3Like;
-        fromPointId: string;
-        toPointId: string;
-      }[]
-    | null
-  >(null);
+  const floorMaps = useMemo(() => {
+    return Object.entries(floorCRDTs).reduce((acc, [floorId, crdt]) => {
+      acc[floorId] = new FloorData(crdt.state, []);
+      return acc;
+    }, {} as Record<string, FloorData>);
+  }, [floorCRDTs]);
 
   // Handle CRDT updates from floors
   const updateFloorCRDT = useCallback(
@@ -43,6 +44,15 @@ function App() {
     },
     []
   );
+
+  const [path, setPath] = useState<
+    | {
+        point: THREE.Vector3Like;
+        fromPointId: string;
+        toPointId: string;
+      }[]
+    | null
+  >(null);
 
   const [pathfinderInitialized, setPathfinderInitialized] = useState(false);
   const pathfinder = useMemo(() => {
@@ -56,20 +66,11 @@ function App() {
   useEffect(() => {
     if (!pathfinderInitialized) return;
 
-    // Convert CRDTs to the format expected by loadMultiFloor
-    const floorNavMaps = Object.entries(floorCRDTs).reduce(
-      (acc, [floorId, crdt]) => ({
-        ...acc,
-        [floorId]: new FloorData(crdt.state, []),
-      }),
-      {}
-    );
-
     pathfinder.loadMultifloor({
-      data: floorNavMaps,
+      data: floorMaps,
       links: floorData.links,
     });
-  }, [floorCRDTs, pathfinderInitialized, floorData.links]);
+  }, [floorMaps, pathfinderInitialized, floorData.links]);
 
   const [start, setStart] = useState<{
     floorId: string;
@@ -163,109 +164,116 @@ function App() {
               crdt={floorCRDT}
               setCRDT={(newCRDT) => updateFloorCRDT(floor.id, newCRDT)}
             >
-              <div className="flex flex-col relative">
-                <div className="flex-1">
-                  <ThreeCanvas>
-                    <color attach="background" args={["#f0f0f0"]} />
-                    <ambientLight intensity={Math.PI / 2} />
-                    <directionalLight intensity={2} position={[10, 100, 10]} />
-                    <Grid
-                      infiniteGrid
-                      cellSize={1}
-                      cellThickness={0.5}
-                      cellColor="#6f6f6f"
-                      sectionSize={5}
-                      sectionThickness={1.5}
-                      sectionColor="#a5b4fc"
-                      fadeDistance={400}
-                      fadeStrength={10}
-                      followCamera={false}
-                    />
+              <FloorDataProvider key={floor.id} floorData={floorMaps[floor.id]}>
+                <div className="flex flex-col relative">
+                  <div className="flex-1">
+                    <ThreeCanvas>
+                      <color attach="background" args={["#f0f0f0"]} />
+                      <ambientLight intensity={Math.PI / 2} />
+                      <directionalLight
+                        intensity={2}
+                        position={[10, 100, 10]}
+                      />
+                      <Grid
+                        infiniteGrid
+                        cellSize={1}
+                        cellThickness={0.5}
+                        cellColor="#6f6f6f"
+                        sectionSize={5}
+                        sectionThickness={1.5}
+                        sectionColor="#a5b4fc"
+                        fadeDistance={400}
+                        fadeStrength={10}
+                        followCamera={false}
+                      />
 
-                    {/* Add NavgraphRenderer back */}
-                    <Suspense fallback={null}>
-                      <NavgraphRenderer />
-                    </Suspense>
+                      {/* Add NavgraphRenderer back */}
+                      <Suspense fallback={null}>
+                        <NavgraphRenderer />
+                      </Suspense>
 
-                    {/* Add NavEndPoints for this floor */}
-                    <NavEndPoint
-                      color="cyan"
-                      name="Start"
-                      visible={start.floorId === floor.id}
-                      position={
-                        new THREE.Vector3(
-                          start.position.x,
-                          start.position.y,
-                          start.position.z
-                        )
-                      }
-                      setPosition={(pos) =>
-                        setStart({ ...start, position: pos })
-                      }
-                      onContextMenu={(event) =>
-                        handleContextMenu(event, "start")
-                      }
-                    />
-                    <NavEndPoint
-                      color="blue"
-                      name="End"
-                      visible={end.floorId === floor.id}
-                      position={
-                        new THREE.Vector3(
-                          end.position.x,
-                          end.position.y,
-                          end.position.z
-                        )
-                      }
-                      setPosition={(pos) => setEnd({ ...end, position: pos })}
-                      onContextMenu={(event: ThreeEvent<MouseEvent>) =>
-                        handleContextMenu(event, "end")
-                      }
-                    />
-                    {path &&
-                      path.length > 1 &&
-                      path.map((currentPoint, index) => {
-                        if (index === path.length - 1) return null; // Skip last point
+                      {/* Add NavEndPoints for this floor */}
+                      <NavEndPoint
+                        color="cyan"
+                        name="Start"
+                        visible={start.floorId === floor.id}
+                        position={
+                          new THREE.Vector3(
+                            start.position.x,
+                            start.position.y,
+                            start.position.z
+                          )
+                        }
+                        setPosition={(pos) =>
+                          setStart({ ...start, position: pos })
+                        }
+                        onContextMenu={(event) =>
+                          handleContextMenu(event, "start")
+                        }
+                      />
+                      <NavEndPoint
+                        color="blue"
+                        name="End"
+                        visible={end.floorId === floor.id}
+                        position={
+                          new THREE.Vector3(
+                            end.position.x,
+                            end.position.y,
+                            end.position.z
+                          )
+                        }
+                        setPosition={(pos) => setEnd({ ...end, position: pos })}
+                        onContextMenu={(event: ThreeEvent<MouseEvent>) =>
+                          handleContextMenu(event, "end")
+                        }
+                      />
+                      {path &&
+                        path.length > 1 &&
+                        path.map((currentPoint, index) => {
+                          if (index === path.length - 1) return null; // Skip last point
 
-                        if (currentPoint.toPointId.split("/")[0] !== floor.id)
-                          return null;
-                        if (currentPoint.fromPointId.split("/")[0] !== floor.id)
-                          return null;
-                        const nextPoint = path[index + 1];
+                          if (currentPoint.toPointId.split("/")[0] !== floor.id)
+                            return null;
+                          if (
+                            currentPoint.fromPointId.split("/")[0] !== floor.id
+                          )
+                            return null;
+                          const nextPoint = path[index + 1];
 
-                        return (
-                          <Line
-                            key={`path-${index}`}
-                            points={[
-                              [
-                                currentPoint.point.x,
-                                currentPoint.point.y ?? 0,
-                                currentPoint.point.z,
-                              ],
-                              [
-                                nextPoint.point.x,
-                                nextPoint.point.y ?? 0,
-                                nextPoint.point.z,
-                              ],
-                            ]}
-                            color="#007700"
-                            linewidth={3}
-                            dashed={false}
-                            depthTest={false}
-                            transparent={true}
-                            renderOrder={15}
-                          />
-                        );
-                      })}
-                  </ThreeCanvas>
-                </div>
-                <div className="absolute top-0 left-1/2 transform -translate-x-1/2 ">
-                  <div className="bg-black rounded-10  text-white p-2.5 flex flex-row gap-2.5 items-center">
-                    {floor.name}
+                          return (
+                            <Line
+                              key={`path-${index}`}
+                              points={[
+                                [
+                                  currentPoint.point.x,
+                                  currentPoint.point.y ?? 0,
+                                  currentPoint.point.z,
+                                ],
+                                [
+                                  nextPoint.point.x,
+                                  nextPoint.point.y ?? 0,
+                                  nextPoint.point.z,
+                                ],
+                              ]}
+                              color="#007700"
+                              linewidth={3}
+                              dashed={false}
+                              depthTest={false}
+                              transparent={true}
+                              renderOrder={15}
+                            />
+                          );
+                        })}
+                    </ThreeCanvas>
                   </div>
+                  <div className="absolute top-0 left-1/2 transform -translate-x-1/2 ">
+                    <div className="bg-black rounded-10  text-white p-2.5 flex flex-row gap-2.5 items-center">
+                      {floor.name}
+                    </div>
+                  </div>
+                  <NavgraphToolbar />
                 </div>
-                <NavgraphToolbar />
-              </div>
+              </FloorDataProvider>
             </FloorEditingProvider>
           );
         })}

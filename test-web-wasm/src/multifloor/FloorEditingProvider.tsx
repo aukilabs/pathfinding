@@ -164,7 +164,7 @@ const createFloorEditingStore = (
         };
         console.log("Removing existing area:", operation);
         const newCRDT = applyOperation(get().crdt, operation);
-        set({ crdt: newCRDT });
+        get().setCRDT(newCRDT);
         return;
       }
 
@@ -183,7 +183,7 @@ const createFloorEditingStore = (
         };
         console.log("Creating new area:", operation);
         const newCRDT = applyOperation(get().crdt, operation);
-        set({ crdt: newCRDT });
+        get().setCRDT(newCRDT);
       }
     },
 
@@ -343,7 +343,7 @@ const createFloorEditingStore = (
       };
 
       const newCRDT = applyOperation(crdt, operation);
-      set({ crdt: newCRDT });
+      get().setCRDT(newCRDT);
     },
   }));
 
@@ -360,10 +360,7 @@ export function FloorEditingProvider({
   crdt: NavMapCRDT;
   setCRDT: (crdt: NavMapCRDT) => void;
 }) {
-  const store = useMemo(
-    () => createFloorEditingStore(crdt, setCRDT),
-    [crdt, setCRDT]
-  );
+  const store = useMemo(() => createFloorEditingStore(crdt, setCRDT), []);
 
   return (
     <FloorEditingContext.Provider value={store}>

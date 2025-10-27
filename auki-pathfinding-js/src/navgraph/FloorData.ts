@@ -49,12 +49,24 @@ export class FloorData {
     return this._edgeWeights;
   }
 
+  get areaGroupNavmeshes(): ReadonlyMap<string, NavMesh> {
+    return this._areaGroupNavMeshes;
+  }
+
   getAreaGroupAreas(areaGroupId: string): string[] {
     return this._areaGroups.get(areaGroupId) || [];
   }
 
   getPoints(): Readonly<Record<string, Point>> {
     return this._graph.points;
+  }
+
+  getAreaMeshes(): ReadonlyMap<string, THREE.Mesh> {
+    return this._areaMeshes;
+  }
+
+  getLegacyNavmesh(): NavMesh | null {
+    return this._legacyNavMesh;
   }
 
   getLegacyNavMeshQuery(): NavMeshQuery | null {
@@ -66,6 +78,10 @@ export class FloorData {
   }
   getGraphPoint(pointId: string): Point | null {
     return this._graph.points[pointId] || null;
+  }
+
+  getAreaGroupNavMesh(areaGroupId: string): NavMesh | null {
+    return this._areaGroupNavMeshes.get(areaGroupId) || null;
   }
 
   getAreaGroupNMQuery(areaGroupId: string): NavMeshQuery | null {
