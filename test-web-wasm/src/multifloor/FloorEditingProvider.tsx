@@ -85,11 +85,8 @@ const createFloorEditingStore = (
       }),
     crdt: initialCRDT,
     setCRDT: (crdt: NavMapCRDT) => {
-      console.log("setCRDT called with:", crdt);
       set({ crdt });
-      console.log("About to call setCRDTCallback");
       setCRDTCallback(crdt);
-      console.log("setCRDTCallback completed");
     },
     selectedPoint: null,
     selectPoint: (pointId: string | null) => {

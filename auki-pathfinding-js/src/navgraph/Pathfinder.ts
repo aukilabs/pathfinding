@@ -8,6 +8,7 @@ import {
   EdgeWeightInfo,
   PathResult,
   InterFloorLink,
+  PathPoint,
 } from "./NavgraphTypes";
 import * as geometry from "./GeometryUtils";
 import * as graphUtils from "./GraphUtils";
@@ -86,13 +87,7 @@ export class Pathfinder {
     to: THREE.Vector3Like,
     fromFloorId: string,
     toFloorId: string
-  ):
-    | {
-        point: THREE.Vector3Like;
-        fromPointId: string;
-        toPointId: string;
-      }[]
-    | null {
+  ): PathPoint[] | null {
     const fromFloor = this._maps.get(fromFloorId);
     const toFloor = this._maps.get(toFloorId);
     if (!fromFloor || !toFloor) {
@@ -143,7 +138,7 @@ export class Pathfinder {
     }
 
     // Convert to world coordinates
-    return this.convertGraphPathToWorldPath(
+    return this.convertToFinalPath(
       graphPath,
       fromResult,
       toResult,
@@ -155,7 +150,7 @@ export class Pathfinder {
     );
   }
 
-  private convertGraphPathToWorldPath(
+  private convertToFinalPath(
     graphPath: string[],
     fromResult: any,
     toResult: any,
@@ -164,35 +159,32 @@ export class Pathfinder {
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     fromFloorId: string,
     toFloorId: string
-  ): {
-    point: THREE.Vector3Like;
-    fromPointId: string;
-    toPointId: string;
-  }[] {
-    const fullPath: {
-      point: THREE.Vector3Like;
-      fromPointId: string;
-      toPointId: string;
-    }[] = [
+  ): PathPoint[] {
+    const fullPath: PathPoint[] = [
       {
         point: from,
-        fromPointId: fromFloorId ? `${fromFloorId}/from` : "from",
-        toPointId: fromFloorId
-          ? `${fromFloorId}/from_intermediate`
-          : "from_intermediate",
+        fromPointId: "from",
+        toPointId: "from_intermediate",
+        floorId: fromFloorId,
       },
     ];
 
-    let currentFloor = this._maps.get(fromFloorId);
     for (let i = 0; i < graphPath.length - 1; i++) {
       const currentNode = graphPath[i];
       const nextNode = graphPath[i + 1];
+      const { floorId: currentFloorId, itemId: currentNodeId } =
+        pathfinding.getFloorAndItemFromKey(currentNode);
+      const { floorId: nextFloorId, itemId: nextNodeId } =
+        pathfinding.getFloorAndItemFromKey(nextNode);
 
-      if (nextNode) {
+      let currentFloor = this._maps.get(fromFloorId);
+
+      if (nextNodeId) {
         // Create path key using the same pattern for all nodes
-        const pathKey = createEdgeWeightKey(currentNode, nextNode);
+        const pathKey = createEdgeWeightKey(currentNodeId, nextNodeId);
+        const floorPathKey = createEdgeWeightKey(currentNode, nextNode);
         const staticConnections = currentFloor!.edgeWeights.get(pathKey);
-        const tempConnections = tempEdgeWeights.get(pathKey);
+        const tempConnections = tempEdgeWeights.get(floorPathKey);
 
         let chosenStaticConnection: EdgeWeightInfo | null = null;
         let chosenTempConnection: EdgeWeightInfo | null = null;
@@ -218,54 +210,44 @@ export class Pathfinder {
           chosenConnection = chosenTempConnection;
         }
         if (chosenConnection) {
-          const fromPointId =
-            fromFloorId &&
-            (currentNode == constants.FROM_INTERMEDIATE ||
-              currentNode == constants.TO_INTERMEDIATE)
-              ? `${fromFloorId}/${currentNode}`
-              : currentNode;
-
-          const toPointId =
-            toFloorId &&
-            (nextNode == constants.FROM_INTERMEDIATE ||
-              nextNode == constants.TO_INTERMEDIATE)
-              ? `${toFloorId}/${nextNode}`
-              : nextNode;
           fullPath.push(
-            ...chosenConnection.path.map((point) => ({
-              point,
-              fromPointId: fromPointId,
-              toPointId: toPointId,
-            }))
+            ...chosenConnection.path
+              .map((point, i) => {
+                if (i == chosenConnection.path.length - 1) return null;
+                const p: PathPoint = {
+                  point,
+                  fromPointId: currentNodeId,
+                  toPointId: nextNodeId,
+                  floorId: currentFloorId,
+                };
+
+                if (nextFloorId !== currentFloorId) {
+                  p.toFloorId = nextFloorId;
+                  p.floorLink = this._links.find(
+                    (link) =>
+                      link.fromFloorId === currentFloorId &&
+                      link.toFloorId === nextFloorId &&
+                      ((link.fromPointId === currentNodeId &&
+                        link.toPointId === nextNodeId) ||
+                        (link.fromPointId === nextNodeId &&
+                          link.toPointId === currentNodeId))
+                  );
+                }
+
+                return p;
+              })
+              .filter((p) => p !== null)
           );
           continue;
         }
-      }
-
-      // Fallback: add single point based on node type
-      if (currentNode === constants.FROM_INTERMEDIATE) {
-        console.log("from intermediate fall back", fromResult);
-        fullPath.push({
-          point: fromResult.position,
-          fromPointId: fromResult.fromPointId,
-          toPointId: fromResult.toPointId,
-        });
-      } else if (currentNode === constants.TO_INTERMEDIATE) {
-        console.log("to intermediate fall back", toResult);
-        fullPath.push({
-          point: toResult.position,
-          fromPointId: toResult.fromPointId,
-          toPointId: toResult.toPointId,
-        });
       }
     }
 
     fullPath.push({
       point: to,
-      fromPointId: toFloorId
-        ? `${toFloorId}/to_intermediate`
-        : "to_intermediate",
-      toPointId: toFloorId ? `${toFloorId}/to` : "to",
+      fromPointId: "to_intermediate",
+      toPointId: "to",
+      floorId: toFloorId,
     });
     return fullPath;
   }

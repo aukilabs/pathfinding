@@ -85,3 +85,12 @@ export type PathResult =
   | EdgePathResult
   | LegacyPathResult
   | AreaGroupPathResult;
+
+export type PathPoint = {
+  point: THREE.Vector3Like;
+  fromPointId: string;
+  toPointId: string;
+  floorId: string;
+  toFloorId?: string;
+  floorLink?: InterFloorLink;
+};

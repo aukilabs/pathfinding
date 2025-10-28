@@ -50,6 +50,7 @@ function App() {
         point: THREE.Vector3Like;
         fromPointId: string;
         toPointId: string;
+        floorId: string;
       }[]
     | null
   >(null);
@@ -70,7 +71,9 @@ function App() {
       data: floorMaps,
       links: floorData.links,
     });
-  }, [floorMaps, pathfinderInitialized, floorData.links]);
+    //do this to trigger the first pathfind
+    setStart({ ...start });
+  }, [pathfinderInitialized, floorMaps, floorData.links]);
 
   const [start, setStart] = useState<{
     floorId: string;
@@ -84,25 +87,16 @@ function App() {
 
   useEffect(() => {
     if (!pathfinder.loaded) return;
-    console.log(
-      "Finding path from",
-      start.floorId,
-      "/",
-      start.position,
-      "to",
-      end.floorId,
-      "/",
-      end.position
-    );
+
     const path = pathfinder.findPath(
       start.position,
       end.position,
       start.floorId,
       end.floorId
     );
-    console.log("Path:", path);
+
     setPath(path);
-  }, [floorCRDTs, start, end]);
+  }, [start, end]);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -232,12 +226,7 @@ function App() {
                         path.map((currentPoint, index) => {
                           if (index === path.length - 1) return null; // Skip last point
 
-                          if (currentPoint.toPointId.split("/")[0] !== floor.id)
-                            return null;
-                          if (
-                            currentPoint.fromPointId.split("/")[0] !== floor.id
-                          )
-                            return null;
+                          if (currentPoint.floorId !== floor.id) return null;
                           const nextPoint = path[index + 1];
 
                           return (
