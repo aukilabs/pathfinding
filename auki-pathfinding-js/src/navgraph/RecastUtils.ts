@@ -1,26 +1,19 @@
-import * as THREE from "three";
 import { NavMeshQuery } from "recast-navigation";
 import * as constants from "./Constants";
+import { V3 } from "./NavgraphTypes";
+import { calculateDistance } from "./GeometryUtils";
 
 export function getNavmeshUnderPoint(
-  point: THREE.Vector3Like,
+  point: V3,
   navMeshQueries: Map<string, NavMeshQuery>
 ): string | null {
   // Use NavMesh query to find nearest point on surface
-  const pointV3 = new THREE.Vector3(point.x, point.y, point.z);
 
   try {
     for (const [areaGroupId, areaGroupQuery] of navMeshQueries) {
-      const result = (areaGroupQuery as NavMeshQuery).findClosestPoint(
-        pointV3,
-        {
-          halfExtents: new THREE.Vector3(
-            constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.x,
-            constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.y,
-            constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.z
-          ),
-        }
-      );
+      const result = (areaGroupQuery as NavMeshQuery).findClosestPoint(point, {
+        halfExtents: constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS,
+      });
 
       if (result.success && result.point && result.isPointOverPoly) {
         return areaGroupId;
@@ -34,19 +27,13 @@ export function getNavmeshUnderPoint(
 }
 
 export function isPointOnLegacyNavMesh(
-  point: THREE.Vector3Like,
+  point: V3,
   navMeshQuery: NavMeshQuery
 ): boolean {
   // Use NavMesh query to find nearest point on surface
-  const pointV3 = new THREE.Vector3(point.x, point.y, point.z);
-
   try {
-    const result = navMeshQuery.findClosestPoint(pointV3, {
-      halfExtents: new THREE.Vector3(
-        constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.x,
-        constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.y,
-        constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.z
-      ),
+    const result = navMeshQuery.findClosestPoint(point, {
+      halfExtents: constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS,
     });
     if (result.success && result.point) {
       return result.isPointOverPoly;
@@ -60,9 +47,9 @@ export function isPointOnLegacyNavMesh(
 
 export function findClosestPoint(
   legacyNavMeshQuery: NavMeshQuery | null,
-  position: THREE.Vector3Like
+  position: V3
 ): {
-  position: THREE.Vector3Like;
+  position: V3;
   distance: number;
 } | null {
   if (!legacyNavMeshQuery) {
@@ -70,19 +57,12 @@ export function findClosestPoint(
   }
 
   try {
-    const positionV3 = new THREE.Vector3(position.x, position.y, position.z);
-    const result = legacyNavMeshQuery.findClosestPoint(positionV3, {
-      halfExtents: new THREE.Vector3(
-        constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.x,
-        constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.y,
-        constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS.z
-      ),
+    const result = legacyNavMeshQuery.findClosestPoint(position, {
+      halfExtents: constants.DEFAULT_NAVMESH_QUERY_HALF_EXTENTS,
     });
 
     if (result.success && result.point) {
-      const distance = positionV3.distanceTo(
-        new THREE.Vector3().copy(result.point)
-      );
+      const distance = calculateDistance(position, result.point);
 
       return {
         position: result.point,

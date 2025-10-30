@@ -1,14 +1,10 @@
-import { init, NavMesh, NavMeshQuery } from "recast-navigation";
-import { threeToSoloNavMesh } from "@recast-navigation/three";
-import * as THREE from "three";
+import { init, NavMeshQuery } from "recast-navigation";
 import {
-  Area,
-  Edge,
-  NavMap,
   EdgeWeightInfo,
   PathResult,
   InterFloorLink,
   PathPoint,
+  V3,
 } from "./NavgraphTypes";
 import * as geometry from "./GeometryUtils";
 import * as graphUtils from "./GraphUtils";
@@ -18,7 +14,6 @@ import * as constants from "./Constants";
 import { FloorData } from "./FloorData";
 const { createEdgeWeightKey } = constants;
 const { addAdjacency, computeNavMeshPathAndConnect } = graphUtils;
-const { getNavmeshUnderPoint, findClosestPoint } = recastUtils;
 
 export type NavOptions = {
   maxDistance?: number;
@@ -74,7 +69,6 @@ export class Pathfinder {
   }
 
   private cleanUp() {
-    console.log("Cleaning up pathfinder");
     this._maps.clear();
   }
 
@@ -83,8 +77,8 @@ export class Pathfinder {
   }
 
   findPath(
-    from: THREE.Vector3Like,
-    to: THREE.Vector3Like,
+    from: V3,
+    to: V3,
     fromFloorId: string,
     toFloorId: string
   ): PathPoint[] | null {
@@ -140,8 +134,6 @@ export class Pathfinder {
     // Convert to world coordinates
     return this.convertToFinalPath(
       graphPath,
-      fromResult,
-      toResult,
       from,
       to,
       mergedGraphs.mergedEdgeWeights,
@@ -152,10 +144,8 @@ export class Pathfinder {
 
   private convertToFinalPath(
     graphPath: string[],
-    fromResult: any,
-    toResult: any,
-    from: THREE.Vector3Like,
-    to: THREE.Vector3Like,
+    from: V3,
+    to: V3,
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     fromFloorId: string,
     toFloorId: string
@@ -212,8 +202,12 @@ export class Pathfinder {
         if (chosenConnection) {
           fullPath.push(
             ...chosenConnection.path
-              .map((point, i) => {
-                if (i == chosenConnection.path.length - 1) return null;
+              .map((point, j) => {
+                if (
+                  j == chosenConnection.path.length - 1 &&
+                  i < graphPath.length - 2
+                )
+                  return null;
                 const p: PathPoint = {
                   point,
                   fromPointId: currentNodeId,
@@ -628,7 +622,7 @@ export class Pathfinder {
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
     floor: FloorData,
     tempPointId: string,
-    position: THREE.Vector3Like,
+    position: V3,
     areaGroupId: string
   ): void {
     if (areaGroupId) {

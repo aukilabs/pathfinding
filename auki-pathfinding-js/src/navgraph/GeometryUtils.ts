@@ -1,19 +1,15 @@
 import earcut from "earcut";
-import * as THREE from "three";
-import * as constants from "./Constants";
-import { NavMap } from "./NavgraphTypes";
 
-export function calculateDistance(
-  p1: THREE.Vector3Like,
-  p2: THREE.Vector3Like
-): number {
+import { NavMap, NavmeshGeometry, V3 } from "./NavgraphTypes";
+
+export function calculateDistance(p1: V3, p2: V3): number {
   const dx = p2.x - p1.x;
   const dy = (p2.y ?? 0) - (p1.y ?? 0);
   const dz = p2.z - p1.z;
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-export function calculatePathLength(path: THREE.Vector3Like[]): number {
+export function calculatePathLength(path: V3[]): number {
   if (path.length < 2) return 0;
 
   let totalLength = 0;
@@ -24,10 +20,10 @@ export function calculatePathLength(path: THREE.Vector3Like[]): number {
 }
 
 export function getClosestPointOnLineSegment(
-  point: THREE.Vector3Like,
-  lineStart: THREE.Vector3Like,
-  lineEnd: THREE.Vector3Like
-): THREE.Vector3Like {
+  point: V3,
+  lineStart: V3,
+  lineEnd: V3
+): V3 {
   const dx = lineEnd.x - lineStart.x;
   const dy = (lineEnd.y ?? 0) - (lineStart.y ?? 0);
   const dz = lineEnd.z - lineStart.z;
@@ -54,13 +50,10 @@ export function getClosestPointOnLineSegment(
   };
 }
 
-export function expandPolygon(
-  polygon: THREE.Vector3Like[],
-  expansionDistance: number
-): THREE.Vector3Like[] {
+export function expandPolygon(polygon: V3[], expansionDistance: number): V3[] {
   if (polygon.length < 3) return polygon;
 
-  const expanded: THREE.Vector3Like[] = [];
+  const expanded: V3[] = [];
 
   for (let i = 0; i < polygon.length; i++) {
     const prev = polygon[(i - 1 + polygon.length) % polygon.length];
@@ -171,12 +164,10 @@ export function expandPolygon(
   return expanded;
 }
 
-export function triangulateArea(
-  polygon: THREE.Vector3Like[]
-): THREE.Vector3Like[][] | null {
+export function triangulateArea(polygon: V3[]): V3[][] | null {
   // Convert polygon to 2D for earcut (project to XZ plane)
   const vertices2D: number[] = [];
-  const vertices3D: THREE.Vector3Like[] = [];
+  const vertices3D: V3[] = [];
 
   polygon.forEach((vertex, index) => {
     vertices2D.push(vertex.x, vertex.z); // X and Z coordinates
@@ -192,9 +183,9 @@ export function triangulateArea(
   }
 
   // Convert back to 3D triangles and ensure counter-clockwise winding order
-  const result: THREE.Vector3Like[][] = [];
+  const result: V3[][] = [];
   for (let i = 0; i < triangles.length; i += 3) {
-    const triangle: THREE.Vector3Like[] = [];
+    const triangle: V3[] = [];
 
     // For counter-clockwise winding order (facing upward), we need to reverse the order
     // earcut returns clockwise triangles, so we reverse them
@@ -211,15 +202,13 @@ export function triangulateArea(
 
 export function createMeshFromTriangles(
   areaId: string,
-  triangles: THREE.Vector3Like[][]
-): THREE.Mesh | null {
+  triangles: V3[][]
+): NavmeshGeometry | null {
   if (!triangles || triangles.length === 0) {
     console.log("Failed to triangulate area:", areaId);
     return null;
   }
 
-  // Create geometry from triangles
-  const geometry = new THREE.BufferGeometry();
   const vertices: number[] = [];
   const indices: number[] = [];
 
@@ -232,22 +221,16 @@ export function createMeshFromTriangles(
     indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
   });
 
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(vertices, 3)
-  );
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
-  mesh.name = areaId;
-  return mesh;
+  return {
+    positions: new Float32Array(vertices),
+    indices: new Uint32Array(indices),
+  };
 }
 
 export function buildPolygonFromEdges(
   edgeIds: string[],
   map: NavMap
-): THREE.Vector3Like[] | null {
+): V3[] | null {
   if (!map) return null;
 
   // Build ordered polygon from area edges
@@ -260,7 +243,7 @@ export function buildPolygonFromEdges(
   });
 
   // Find a starting edge and build the polygon
-  const polygon: THREE.Vector3Like[] = [];
+  const polygon: V3[] = [];
   const visited = new Set<string>();
 
   const firstEdgeId = edgeIds[0];
@@ -311,10 +294,7 @@ export function buildPolygonFromEdges(
   return polygon.length > 2 ? polygon : null;
 }
 
-export function isPointInPolygon(
-  point: THREE.Vector3Like,
-  polygon: THREE.Vector3Like[]
-): boolean {
+export function isPointInPolygon(point: V3, polygon: V3[]): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const vi = polygon[i];

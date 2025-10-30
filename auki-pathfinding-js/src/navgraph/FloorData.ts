@@ -3,17 +3,21 @@ import {
   Edge,
   EdgeWeightInfo,
   NavMap,
+  NavmeshGeometry,
   PathResult,
   Point,
   ReadOnlyNavMap,
+  V3,
 } from "./NavgraphTypes";
-import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
 import * as recastUtils from "./RecastUtils";
 import * as graphUtils from "./GraphUtils";
 import * as pathfinding from "./PathfindingUtils";
-import { threeToSoloNavMesh } from "@recast-navigation/three";
+import {
+  generateSoloNavMesh,
+  mergePositionsAndIndices,
+} from "@recast-navigation/generators";
 const { addAdjacency, computeNavMeshPathAndConnect } = graphUtils;
 const { findClosestPoint, getNavmeshUnderPoint } = recastUtils;
 const { convertAreaGroupToPathResult } = pathfinding;
@@ -21,16 +25,15 @@ const { convertAreaGroupToPathResult } = pathfinding;
 export class FloorData {
   //source data
   private _graph: NavMap;
-  private _navmeshGeometry: THREE.Mesh[];
 
   //caches for graph areas
-  private _areaMeshes: Map<string, THREE.Mesh> = new Map();
+  private _areaMeshes: Map<string, NavmeshGeometry> = new Map();
   private _areaGroups: Map<string, string[]> = new Map(); // areaGroupId -> areaIds[]
   private _areaGroupNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areaGroups
   private _areaGroupNMQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areaGroups
 
   //navmesh geometry
-  private _legacyMeshes: THREE.Mesh[] = [];
+  private _legacyMeshes: NavmeshGeometry[] = [];
   private _legacyNavMesh: NavMesh | null = null;
   private _legacyNavMeshQuery: NavMeshQuery | null = null;
 
@@ -61,7 +64,7 @@ export class FloorData {
     return this._graph.points;
   }
 
-  getAreaMeshes(): ReadonlyMap<string, THREE.Mesh> {
+  getAreaMeshes(): ReadonlyMap<string, NavmeshGeometry> {
     return this._areaMeshes;
   }
 
@@ -88,9 +91,9 @@ export class FloorData {
     return this._areaGroupNMQueries.get(areaGroupId) || null;
   }
 
-  constructor(graph: NavMap, navmeshGeometry: THREE.Mesh[]) {
+  constructor(graph: NavMap, navmeshGeometry: NavmeshGeometry[]) {
     this._graph = graph;
-    this._navmeshGeometry = navmeshGeometry;
+    this._legacyMeshes = navmeshGeometry;
 
     this.initializeMapAreas();
     this.buildAreaGroups();
@@ -135,7 +138,6 @@ export class FloorData {
     this._legacyNavMesh = null;
     this._legacyNavMeshQuery?.destroy();
     this._legacyNavMeshQuery = null;
-    this._areaMeshes.forEach((mesh) => mesh.geometry.dispose());
     this._areaMeshes.clear();
     this._areaGroupNavMeshes.forEach((navMesh) => navMesh.destroy());
     this._areaGroupNavMeshes.clear();
@@ -231,8 +233,10 @@ export class FloorData {
 
     let nmResult;
     try {
-      nmResult = threeToSoloNavMesh(
-        legacyMeshes,
+      const [positions, indices] = mergePositionsAndIndices(legacyMeshes);
+      nmResult = generateSoloNavMesh(
+        positions,
+        indices,
         constants.DEFAULT_NAVMESH_PARAMS
       );
     } catch (error) {
@@ -254,7 +258,7 @@ export class FloorData {
 
     for (const [groupId, areaIds] of this._areaGroups) {
       // Collect all area meshes in this group
-      const areaMeshes: THREE.Mesh[] = [];
+      const areaMeshes: NavmeshGeometry[] = [];
 
       for (const areaId of areaIds) {
         const areaMesh = this._areaMeshes.get(areaId);
@@ -266,8 +270,10 @@ export class FloorData {
       if (areaMeshes.length === 0) continue;
 
       try {
-        const nmResult = threeToSoloNavMesh(
-          areaMeshes,
+        const [positions, indices] = mergePositionsAndIndices(areaMeshes);
+        const nmResult = generateSoloNavMesh(
+          positions,
+          indices,
           constants.DEFAULT_NAVMESH_PARAMS
         );
         if (nmResult.navMesh) {
@@ -460,7 +466,7 @@ export class FloorData {
     return Array.from(groupIds);
   }
 
-  getPathResult(position: THREE.Vector3Like): PathResult | null {
+  getPathResult(position: V3): PathResult | null {
     const areaId = getNavmeshUnderPoint(position, this._areaGroupNMQueries);
     if (areaId) return convertAreaGroupToPathResult(areaId, position);
     const edge = graphUtils.getNearestPositionOnEdge(this._graph, position);

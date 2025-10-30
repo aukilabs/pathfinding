@@ -3,10 +3,7 @@ import NavgraphToolbar from "./navgraph/NavgraphToolbar";
 import { Grid, Line } from "@react-three/drei";
 import { Suspense, useMemo, useState, useEffect, useCallback } from "react";
 import NavgraphRenderer from "./navgraph/NavgraphRenderer";
-import {
-  FloorMetadata,
-  useMultiFloorState,
-} from "./multifloor/MultifloorState";
+import { useMultiFloorState } from "./multifloor/MultifloorState";
 import { FloorEditingProvider } from "./multifloor/FloorEditingProvider";
 import { Button } from "react-aria-components";
 import { Pathfinder, FloorData } from "auki-pathfinding";
@@ -96,6 +93,7 @@ function App() {
     );
 
     setPath(path);
+    console.log("Path:", path);
   }, [start, end]);
 
   // Context menu state

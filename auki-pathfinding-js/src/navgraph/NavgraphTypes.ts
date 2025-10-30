@@ -1,7 +1,7 @@
-import * as THREE from "three";
+export type V3 = { x: number; y: number; z: number };
 
 export type EdgeDirection = 1 | 0 | -1 | undefined;
-export type Point = { x: number; y: number; z: number };
+export type Point = V3;
 export type Edge = {
   from: string;
   to: string;
@@ -55,13 +55,13 @@ export type InterFloorLink = {
 // Enhanced edge weight information
 export type EdgeWeightInfo = {
   weight: number;
-  path: THREE.Vector3Like[];
+  path: V3[];
 };
 
 // Pathfinding result types
 export type EdgePathResult = {
   type: "edge";
-  position: THREE.Vector3Like;
+  position: V3;
   edgeId: string;
   fromPointId: string;
   toPointId: string;
@@ -70,13 +70,13 @@ export type EdgePathResult = {
 
 export type LegacyPathResult = {
   type: "legacy";
-  position: THREE.Vector3Like;
+  position: V3;
   distance: number;
 };
 
 export type AreaGroupPathResult = {
   type: "areaGroup";
-  position: THREE.Vector3Like;
+  position: V3;
   areaGroupId: string;
   distance: number;
 };
@@ -87,10 +87,15 @@ export type PathResult =
   | AreaGroupPathResult;
 
 export type PathPoint = {
-  point: THREE.Vector3Like;
+  point: V3;
   fromPointId: string;
   toPointId: string;
   floorId: string;
   toFloorId?: string;
   floorLink?: InterFloorLink;
+};
+
+export type NavmeshGeometry = {
+  positions: Float32Array;
+  indices: Uint32Array;
 };

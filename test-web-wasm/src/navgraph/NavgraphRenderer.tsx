@@ -515,14 +515,24 @@ export default function NavgraphRenderer({}: {}) {
 
               return (
                 <group key={areaId}>
-                  <primitive object={mesh} onPointerOver={() => {}}>
+                  <mesh onPointerOver={() => {}}>
+                    <bufferGeometry>
+                      <bufferAttribute
+                        args={[mesh.positions, 3]}
+                        attach="attributes-position"
+                      />
+                      <bufferAttribute
+                        args={[mesh.indices, 1]}
+                        attach="attributes-index"
+                      />
+                    </bufferGeometry>
                     <meshStandardMaterial
                       color={isBeingSplit ? "#ff6600" : "red"}
                       depthTest={false}
                       opacity={0.5}
                       transparent={true}
                     />
-                  </primitive>
+                  </mesh>
                 </group>
               );
             }
