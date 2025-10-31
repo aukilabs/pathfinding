@@ -96,6 +96,6 @@ export type PathPoint = {
 };
 
 export type NavmeshGeometry = {
-  positions: Float32Array;
-  indices: Uint32Array;
+  positions: number[];
+  indices: number[];
 };

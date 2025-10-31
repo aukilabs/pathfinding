@@ -1,4 +1,4 @@
-import { NavMesh, NavMeshQuery } from "recast-navigation";
+import { NavMesh, NavMeshQuery } from "@recast-navigation/core";
 import {
   Edge,
   EdgeWeightInfo,
@@ -68,8 +68,8 @@ export class FloorData {
     return this._areaMeshes;
   }
 
-  getLegacyNavmesh(): NavMesh | null {
-    return this._legacyNavMesh;
+  getLegacyMeshes(): readonly NavmeshGeometry[] {
+    return this._legacyMeshes;
   }
 
   getLegacyNavMeshQuery(): NavMeshQuery | null {
@@ -225,9 +225,6 @@ export class FloorData {
 
     const legacyMeshes = this._legacyMeshes;
     if (legacyMeshes.length === 0) {
-      console.log(
-        "No legacy navmeshes found, skipping legacy NavMesh creation"
-      );
       return;
     }
 

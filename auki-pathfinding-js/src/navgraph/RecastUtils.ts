@@ -1,4 +1,4 @@
-import { NavMeshQuery } from "recast-navigation";
+import { NavMeshQuery } from "@recast-navigation/core";
 import * as constants from "./Constants";
 import { V3 } from "./NavgraphTypes";
 import { calculateDistance } from "./GeometryUtils";

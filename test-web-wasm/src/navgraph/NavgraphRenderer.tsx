@@ -1,24 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { useNavgraphDisplayState } from "./NavgraphDisplayState";
-import { initialize, add } from "auki-pathfinding/wasm";
 import { useThree } from "@react-three/fiber";
 import { useFloorEditingState } from "../multifloor/FloorEditingProvider";
 import { Line, MapControls, Text } from "@react-three/drei";
 import { useFloorData } from "../multifloor/FloorDataProvider";
 import { createEdgeWeightKey } from "auki-pathfinding";
-
-initialize().then(() => {
-  console.log("WASM initialized");
-  const result = add(5, 2);
-  console.log("WSM add Result: ", result);
-});
+import { setGeometryFromOBJ } from "../navmeshprocessing/setGeometryFromOBJ";
 
 export default function NavgraphRenderer({}: {}) {
   const displayState = useNavgraphDisplayState();
   const editor = useFloorEditingState();
   const floorData = useFloorData();
-  const [path, setPath] = useState<THREE.Vector3Like[] | null>(null);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -196,6 +189,14 @@ export default function NavgraphRenderer({}: {}) {
       });
     }
   }, [editor.dragState.isDragging, editor.setDragState]);
+
+  const legacyMeshGeometries = useMemo(() => {
+    return floorData.getLegacyMeshes()?.map((obj) => {
+      const geometry = new THREE.BufferGeometry();
+      setGeometryFromOBJ(obj, geometry);
+      return geometry;
+    });
+  }, [floorData.getLegacyMeshes()]);
 
   return (
     <group>
@@ -518,11 +519,11 @@ export default function NavgraphRenderer({}: {}) {
                   <mesh onPointerOver={() => {}}>
                     <bufferGeometry>
                       <bufferAttribute
-                        args={[mesh.positions, 3]}
+                        args={[new Float32Array(mesh.positions), 3]}
                         attach="attributes-position"
                       />
                       <bufferAttribute
-                        args={[mesh.indices, 1]}
+                        args={[new Uint16Array(mesh.indices), 1]}
                         attach="attributes-index"
                       />
                     </bufferGeometry>
@@ -539,70 +540,11 @@ export default function NavgraphRenderer({}: {}) {
           )}
         </group>
       )}
-      {displayState.showPath && (
-        <group name="path">
-          {/* draw lines between consecutive points in path */}
-          {path &&
-            path.length > 1 &&
-            path.map((currentPoint, index) => {
-              if (index === path.length - 1) return null; // Skip last point
-              const nextPoint = path[index + 1];
-
-              return (
-                <Line
-                  key={`path-${index}`}
-                  points={[
-                    [currentPoint.x, currentPoint.y ?? 0, currentPoint.z],
-                    [nextPoint.x, nextPoint.y ?? 0, nextPoint.z],
-                  ]}
-                  color="#007700"
-                  linewidth={3}
-                  dashed={false}
-                  depthTest={false}
-                  transparent={true}
-                  renderOrder={15}
-                />
-              );
-            })}
-          {path &&
-            path.length > 1 &&
-            path.map((currentPoint, index) => {
-              return (
-                <mesh
-                  key={"path-point-" + index}
-                  position={[
-                    currentPoint.x,
-                    currentPoint.y ?? 0,
-                    currentPoint.z,
-                  ]}
-                  renderOrder={15}
-                  onPointerOver={() => {}}
-                >
-                  <sphereGeometry args={[0.05, 32, 32]} />
-                  <meshStandardMaterial color="#00FF00" depthTest={false} />
-                  <Text
-                    rotation={[-Math.PI / 2, 0, 0]}
-                    position={[0, 0.2, 0]}
-                    fontSize={0.1}
-                    color="#007700"
-                    renderOrder={20}
-                  >
-                    {index}
-                  </Text>
-                </mesh>
-              );
-            })}
-        </group>
-      )}
       {displayState.showLegacyNavmesh && (
         <group>
-          {/* {floorData.getLegacyNavmesh()?.map(({ name, geometry }) => (
-            <group key={name}>
-              <mesh
-                key={name + "x"}
-                geometry={geometry}
-                position={[0, 0.01, 0]}
-              >
+          {legacyMeshGeometries?.map((geometry, i) => (
+            <group key={i}>
+              <mesh geometry={geometry} position={[0, 0.01, 0]}>
                 <meshBasicMaterial
                   color="#c8cd88"
                   depthWrite={true}
@@ -610,7 +552,7 @@ export default function NavgraphRenderer({}: {}) {
                 />
               </mesh>
             </group>
-          ))} */}
+          ))}
         </group>
       )}
     </group>

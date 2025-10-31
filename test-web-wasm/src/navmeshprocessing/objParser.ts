@@ -21,8 +21,8 @@ type OBJData = {
 
 export type ParsedOBJModel = {
   name: string;
-  vertices: Float32Array;
-  indices: Uint16Array;
+  positions: number[];
+  indices: number[];
 };
 
 export function ParseOBJString(data: string) {
@@ -36,20 +36,17 @@ export function ParseOBJString(data: string) {
     })
     .map((model): ParsedOBJModel => {
       //map vertices
-      const vertices = new Float32Array(
-        model.vertices.flatMap((v) => [v.x, v.y, v.z])
-      );
+      const vertices = model.vertices.flatMap((v) => [v.x, v.y, v.z]);
+      model.vertices.flatMap((v) => [v.x, v.y, v.z]);
       //map indices
-      const indices = new Uint16Array(
-        model.faces.flatMap((f) =>
-          f.vertices.map((v) => v.vertexIndex - startingIndex)
-        )
+      const indices = model.faces.flatMap((f) =>
+        f.vertices.map((v) => v.vertexIndex - startingIndex)
       );
 
       //bump up the indices for the next model
       startingIndex += model.vertices.length;
 
-      return { name: model.name, indices, vertices };
+      return { name: model.name, indices, positions: vertices };
     });
   return parsedOutput;
 }

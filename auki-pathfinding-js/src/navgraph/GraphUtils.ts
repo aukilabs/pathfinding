@@ -1,7 +1,7 @@
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
 import { NavMap, EdgeWeightInfo, ReadOnlyNavMap, V3 } from "./NavgraphTypes";
-import { NavMeshQuery } from "recast-navigation";
+import { NavMeshQuery } from "@recast-navigation/core";
 import * as recastUtils from "./RecastUtils";
 import { createEdgeWeightKey } from "./Constants";
 
@@ -169,7 +169,7 @@ export function addAdjacency(
     //use recursion to add the neighbor to the adjacency list
     addAdjacency(adjacencyList, edgeWeights, neighborId, nodeId, false, {
       weight: weightInfo.weight,
-      path: weightInfo.path.toReversed(),
+      path: [...weightInfo.path].reverse(),
     });
   }
 }

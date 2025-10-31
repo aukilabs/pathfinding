@@ -222,8 +222,8 @@ export function createMeshFromTriangles(
   });
 
   return {
-    positions: new Float32Array(vertices),
-    indices: new Uint32Array(indices),
+    positions: vertices,
+    indices: indices,
   };
 }
 

@@ -1,4 +1,4 @@
-import { init, NavMeshQuery } from "recast-navigation";
+import { init, NavMeshQuery } from "@recast-navigation/core";
 import {
   EdgeWeightInfo,
   PathResult,

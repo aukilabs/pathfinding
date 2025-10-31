@@ -1,6 +1,4 @@
 import { EdgeDirection } from "auki-pathfinding";
-import * as React from "react";
-import * as THREE from "three";
 import { v4 as uuidv4 } from "uuid";
 import { create } from "zustand";
 

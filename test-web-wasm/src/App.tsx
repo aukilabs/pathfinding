@@ -14,24 +14,20 @@ import { FloorSelectionContextMenu } from "./navgraph/FloorSelectionContextMenu"
 import * as THREE from "three";
 import { ThreeEvent } from "@react-three/fiber";
 import { FloorDataProvider } from "./multifloor/FloorDataProvider";
+import { createMeshes } from "./navgraph/TestLegacyNavmesh";
 
 const initialFloorCRDTs: Record<string, NavMapCRDT> = {
   f1: createNavMapCRDT({ ...TestNavData }, "floor-f1"),
   f2: createNavMapCRDT({ ...TestNavData }, "floor-f2"),
 };
 
+const testlegacy = createMeshes();
+
 function App() {
   const { floorData, addFloor } = useMultiFloorState();
 
   const [floorCRDTs, setFloorCRDTs] =
     useState<Record<string, NavMapCRDT>>(initialFloorCRDTs);
-
-  const floorMaps = useMemo(() => {
-    return Object.entries(floorCRDTs).reduce((acc, [floorId, crdt]) => {
-      acc[floorId] = new FloorData(crdt.state, []);
-      return acc;
-    }, {} as Record<string, FloorData>);
-  }, [floorCRDTs]);
 
   // Handle CRDT updates from floors
   const updateFloorCRDT = useCallback(
@@ -53,6 +49,15 @@ function App() {
   >(null);
 
   const [pathfinderInitialized, setPathfinderInitialized] = useState(false);
+
+  const floorMaps = useMemo(() => {
+    if (!pathfinderInitialized) return {};
+    return Object.entries(floorCRDTs).reduce((acc, [floorId, crdt]) => {
+      acc[floorId] = new FloorData(crdt.state, testlegacy);
+      return acc;
+    }, {} as Record<string, FloorData>);
+  }, [floorCRDTs, pathfinderInitialized]);
+
   const pathfinder = useMemo(() => {
     const pathfinder = new Pathfinder({ maxOffGraphDistance: 10 });
     pathfinder.initializeRecast().then(() => {
