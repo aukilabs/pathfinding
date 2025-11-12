@@ -1,16 +1,13 @@
 {
-  "name": "auki-pathfinding",
+  "name": "@auki/pathfinding",
   "version": "1.0.0",
   "description": "Hybrid pathfinding library combining navigation graphs with Recast/Detour NavMeshes",
   "keywords": [
     "pathfinding",
     "navigation",
-    "three.js",
-    "navmesh",
-    "recast",
-    "detour"
+    "navmesh"
   ],
-  "author": "Auki Labs",
+  "author": "Jason Yankowski",
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
