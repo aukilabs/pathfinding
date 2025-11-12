@@ -13,13 +13,13 @@ A hybrid pathfinding library that combines traditional navigation graphs with Re
 ## Installation
 
 ```bash
-npm install auki-pathfinding
+npm install @auki/pathfinding
 ```
 
 ## Basic Usage
 
 ```typescript
-import { Pathfinder, NavMap } from 'auki-pathfinding';
+import { Pathfinder, NavMap } from '@auki/pathfinding';
 import * as THREE from 'three';
 
 // Create a pathfinder instance
