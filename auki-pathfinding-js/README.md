@@ -143,21 +143,6 @@ interface Area {
 }
 ```
 
-## WASM Integration
-
-The package includes WASM functionality for additional features:
-
-```typescript
-import { initialize, add } from 'auki-pathfinding/wasm';
-
-// Initialize WASM
-await initialize();
-
-// Use WASM functions
-const result = add(5, 2);
-console.log(result); // 7
-```
-
 ## Examples
 
 ### Weight Multipliers
