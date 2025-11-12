@@ -79,8 +79,8 @@ export class Pathfinder {
   findPath(
     from: V3,
     to: V3,
-    fromFloorId: string,
-    toFloorId: string
+    fromFloorId: string = "default-floor",
+    toFloorId: string = "default-floor"
   ): PathPoint[] | null {
     const fromFloor = this._maps.get(fromFloorId);
     const toFloor = this._maps.get(toFloorId);
