@@ -10,11 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@auki/pathfinding": "file:auki-pathfinding-0.2.0.tgz",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "@recast-navigation/three": "^0.43.0",
     "@tailwindcss/vite": "^4.1.14",
-    "auki-pathfinding": "file:../auki-pathfinding-js",
     "earcut": "^3.0.2",
     "obj-file-parser": "^0.6.2",
     "react": "^19.1.1",

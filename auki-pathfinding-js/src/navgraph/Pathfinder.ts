@@ -44,13 +44,13 @@ export class Pathfinder {
   }
 
   loadMultifloor(data: {
-    data: Record<string, FloorData>;
+    data: Map<string, FloorData>;
     links: InterFloorLink[];
   }) {
     this._isLoaded = false;
     this.cleanUp();
 
-    for (const [floorId, floorData] of Object.entries(data.data)) {
+    for (const [floorId, floorData] of data.data.entries()) {
       this._maps.set(floorId, floorData);
     }
 
@@ -61,9 +61,7 @@ export class Pathfinder {
 
   load(data: FloorData) {
     return this.loadMultifloor({
-      data: {
-        ["default-floor"]: data,
-      },
+      data: new Map([["default-floor", data]]),
       links: [],
     });
   }

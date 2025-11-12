@@ -2,7 +2,7 @@ import {
   buildPolygonFromEdges,
   getClosestPointOnLineSegment,
   NavMap,
-} from "auki-pathfinding";
+} from "@auki/pathfinding";
 import * as THREE from "three";
 
 export function findSmallestUnfilledAreaContainingPoint(

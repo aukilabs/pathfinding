@@ -1,5 +1,5 @@
-import { NavMap, Edge, Point, Area } from "auki-pathfinding";
-import { getClosestPointOnLineSegment } from "auki-pathfinding";
+import { NavMap, Edge, Point, Area } from "@auki/pathfinding";
+import { getClosestPointOnLineSegment } from "@auki/pathfinding";
 import * as THREE from "three";
 import { EDGE_DRAWING_CONSTANTS } from "./EdgeDrawingConstants";
 
@@ -496,5 +496,3 @@ function getLineIntersection(
 
   return null;
 }
-
-// Remove the duplicate function since we're importing it from auki-pathfinding

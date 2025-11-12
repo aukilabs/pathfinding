@@ -1,6 +1,0 @@
-{
-  "name": "pathfinding-repo",
-  "scripts": {
-    "buildjs": "cd auki-pathfinding-js && npm install && npm run build && cd ../nav-testbed && npm install"
-  }
-}

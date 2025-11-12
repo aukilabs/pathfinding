@@ -13,8 +13,5 @@ export default defineConfig({
       "Cross-Origin-Opener-Policy": "same-origin",
     },
   },
-  optimizeDeps: {
-    exclude: ["auki-pathfinding/wasm"],
-  },
   assetsInclude: ["**/*.wasm"],
 });

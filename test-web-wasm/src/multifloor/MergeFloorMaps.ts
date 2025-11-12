@@ -1,4 +1,4 @@
-import { NavMap } from "auki-pathfinding";
+import { NavMap } from "@auki/pathfinding";
 import { NavMapCRDT } from "../editing/CRDT";
 import { FloorMetadata } from "./MultifloorState";
 

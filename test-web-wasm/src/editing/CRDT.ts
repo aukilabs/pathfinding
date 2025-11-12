@@ -5,7 +5,7 @@ import {
   Edge,
   NavMap,
   Point,
-} from "auki-pathfinding";
+} from "@auki/pathfinding";
 import { v4 as uuidv4 } from "uuid";
 import { EdgeWithId } from "./EdgeDrawing";
 import { findSmallestPolygonContainingPoint } from "./AreaFill";

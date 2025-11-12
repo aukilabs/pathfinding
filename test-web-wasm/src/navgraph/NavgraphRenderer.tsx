@@ -5,7 +5,7 @@ import { useThree } from "@react-three/fiber";
 import { useFloorEditingState } from "../multifloor/FloorEditingProvider";
 import { Line, MapControls, Text } from "@react-three/drei";
 import { useFloorData } from "../multifloor/FloorDataProvider";
-import { createEdgeWeightKey } from "auki-pathfinding";
+import { createEdgeWeightKey } from "@auki/pathfinding";
 import { setGeometryFromOBJ } from "../navmeshprocessing/setGeometryFromOBJ";
 
 export default function NavgraphRenderer({}: {}) {

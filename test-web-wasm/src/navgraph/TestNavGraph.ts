@@ -1,4 +1,4 @@
-import { NavMap } from "auki-pathfinding";
+import { NavMap } from "@auki/pathfinding";
 
 export const TestNavData: NavMap = {
   points: {

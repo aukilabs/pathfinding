@@ -1,5 +1,5 @@
-import React, { createContext, useContext, ReactNode } from "react";
-import { FloorData } from "auki-pathfinding";
+import { createContext, useContext, ReactNode } from "react";
+import { FloorData } from "@auki/pathfinding";
 
 const FloorDataContext = createContext<FloorData | null>(null);
 
