@@ -1,6 +1,7 @@
-# NavGraph
+# Hybrid-pathfinding
 
 A pathfinding library with JavaScript/TypeScript bindings and a web-based testbed application.
+The pathfinder uses a combination of graph-based and navmesh-based pathfinding that you can mix and match based on your needs.
 
 ## Project Structure
 
@@ -44,7 +45,6 @@ The application will be available at `http://localhost:5173`
 The package uses:
 - **earcut** for polygon triangulation
 - **recast-navigation-js** for pathfinding algorithms
-- **three** for 3d types and mesh building
 
 The testbed uses:
 - **React + Vite** for the web testbed
