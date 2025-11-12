@@ -11,7 +11,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aukilabs/hybrid-pathfinding.git"
+    "url": "https://github.com/aukilabs/pathfinding.git"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
