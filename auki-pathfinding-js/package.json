@@ -25,7 +25,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "local": "npm run build && npm pack && mv auki-pathfinding-*.tgz ../test-web-wasm/auki-pathfinding.tgz"
   },
   "dependencies": {
     "earcut": "^3.0.2",

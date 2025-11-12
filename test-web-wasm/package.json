@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "reset": "rm -rf node_modules && npm i"
   },
   "dependencies": {
-    "@auki/pathfinding": "file:auki-pathfinding-0.2.0.tgz",
+    "@auki/pathfinding": "file:auki-pathfinding.tgz",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "@recast-navigation/three": "^0.43.0",
