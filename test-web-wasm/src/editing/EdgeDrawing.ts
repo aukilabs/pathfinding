@@ -1,10 +1,4 @@
-import {
-  NavMap,
-  Edge,
-  Point,
-  Area,
-  buildPolygonFromEdges,
-} from "auki-pathfinding";
+import { NavMap, Edge, Point, Area } from "auki-pathfinding";
 import { getClosestPointOnLineSegment } from "auki-pathfinding";
 import * as THREE from "three";
 import { EDGE_DRAWING_CONSTANTS } from "./EdgeDrawingConstants";
@@ -501,25 +495,6 @@ function getLineIntersection(
   }
 
   return null;
-}
-
-function isPointInPolygon(
-  point: THREE.Vector3Like,
-  polygon: THREE.Vector3Like[]
-): boolean {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const vi = polygon[i];
-    const vj = polygon[j];
-
-    if (
-      vi.z > point.z !== vj.z > point.z &&
-      point.x < ((vj.x - vi.x) * (point.z - vi.z)) / (vj.z - vi.z) + vi.x
-    ) {
-      inside = !inside;
-    }
-  }
-  return inside;
 }
 
 // Remove the duplicate function since we're importing it from auki-pathfinding

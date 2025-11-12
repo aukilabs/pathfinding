@@ -1,21 +1,30 @@
-import * as THREE from "three";
 import {
   PathResult,
   EdgePathResult,
   LegacyPathResult,
   AreaGroupPathResult,
+  V3,
 } from "./NavgraphTypes";
+
+export function getFloorItemKey(floorId: string, itemId: string) {
+  return `${floorId}/${itemId}`;
+}
+
+export function getFloorAndItemFromKey(id: string) {
+  const parts = id.split("/");
+  return { floorId: parts[0], itemId: parts[1] };
+}
 
 export function chooseClosestResult(
   edgeResult: {
-    position: THREE.Vector3Like;
+    position: V3;
     edgeId: string;
     fromPointId: string;
     toPointId: string;
     distance: number;
   } | null,
   legacyResult: {
-    position: THREE.Vector3Like;
+    position: V3;
     distance: number;
   } | null
 ): PathResult | null {
@@ -31,7 +40,7 @@ export function chooseClosestResult(
 
 export function convertAreaGroupToPathResult(
   areaGroupId: string,
-  position: THREE.Vector3Like
+  position: V3
 ): AreaGroupPathResult {
   return {
     type: "areaGroup",

@@ -1,23 +1,19 @@
-import { init, NavMesh, NavMeshQuery } from "recast-navigation";
-import { threeToSoloNavMesh } from "@recast-navigation/three";
-import * as THREE from "three";
+import { init, NavMeshQuery } from "@recast-navigation/core";
 import {
-  Area,
-  Edge,
-  NavMap,
   EdgeWeightInfo,
   PathResult,
+  InterFloorLink,
+  PathPoint,
+  V3,
 } from "./NavgraphTypes";
 import * as geometry from "./GeometryUtils";
 import * as graphUtils from "./GraphUtils";
 import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";
 import * as constants from "./Constants";
-import { initialize } from "../wasm";
+import { FloorData } from "./FloorData";
 const { createEdgeWeightKey } = constants;
-const { addAdjacency, computeNavMeshPathAndConnect, getNearestPositionOnEdge } =
-  graphUtils;
-const { getNavmeshUnderPoint, findClosestPoint } = recastUtils;
+const { addAdjacency, computeNavMeshPathAndConnect } = graphUtils;
 
 export type NavOptions = {
   maxDistance?: number;
@@ -25,332 +21,74 @@ export type NavOptions = {
 };
 
 export class Pathfinder {
-  private _map: NavMap;
+  private _maps: Map<string, FloorData>;
   private _config: NavOptions;
-  private _adjacencies: Map<string, string[]> = new Map();
-  private _edgeWeights: Map<string, EdgeWeightInfo[]> = new Map();
+  private _links: InterFloorLink[];
 
-  private _areaMeshes: Map<string, THREE.Mesh> = new Map();
-
-  // AreaGroup system for grouping adjacent areas
-  private _areaGroups: Map<string, string[]> = new Map(); // areaGroupId -> areaIds[]
-  private _areaGroupNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areaGroups
-  private _areaGroupNMQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areaGroups
-
-  private _legacyMeshes: THREE.Mesh[] = [];
-  private _legacyNavMesh: NavMesh | null = null;
-  private _legacyNavMeshQuery: NavMeshQuery | null = null;
+  private _isLoaded = false;
+  get loaded() {
+    return this._isLoaded;
+  }
 
   constructor(config: NavOptions = {}) {
     this._config = {
       ...config,
     };
-    this._map = {
-      points: {},
-      edges: {},
-      areas: {},
-    };
+    this._maps = new Map();
+    this._links = [];
   }
 
-  get navmeshes() {
-    return this._areaGroupNavMeshes;
-  }
-
-  get areaMeshes() {
-    return this._areaMeshes;
-  }
-
-  get edgeWeights() {
-    return this._edgeWeights;
-  }
-
-  private isLoaded = false;
-  get loaded() {
-    return this.isLoaded;
-  }
-
-  get adjacencyListForVisualization() {
-    return this._adjacencies;
-  }
-
-  // Convenience getters for users
-  getMapPoint(pointId: string): THREE.Vector3Like | null {
-    return this._map.points[pointId] || null;
-  }
-
-  getMapEdge(edgeId: string): Edge | null {
-    return this._map.edges[edgeId] || null;
-  }
-
-  getMapArea(areaId: string): Area | null {
-    return this._map.areas[areaId] || null;
-  }
-
-  get allPoints(): Record<string, THREE.Vector3Like> {
-    return { ...this._map.points };
-  }
-
-  get allEdges(): Record<string, Edge> {
-    return { ...this._map.edges };
-  }
-
-  get allAreas(): Record<string, Area> {
-    return { ...this._map.areas };
-  }
-
-  get legacyMeshes(): THREE.Mesh[] {
-    return [...this._legacyMeshes];
-  }
-
-  private getMapPointInternal(pointId: string): THREE.Vector3Like | null {
-    return this._map?.points[pointId] || null;
-  }
-
-  initialize() {
+  initializeRecast() {
+    //initialize recast
     return init();
   }
 
-  load(map: NavMap, legacyNavmesh: THREE.Mesh[]) {
-    this.isLoaded = false;
+  loadMultifloor(data: {
+    data: Record<string, FloorData>;
+    links: InterFloorLink[];
+  }) {
+    this._isLoaded = false;
     this.cleanUp();
 
-    this._map = map;
-    this._legacyMeshes = legacyNavmesh;
+    for (const [floorId, floorData] of Object.entries(data.data)) {
+      this._maps.set(floorId, floorData);
+    }
 
-    this.initializeMapAreas();
-    this.buildAreaGroups();
-    this.initializeLegacyAreaNavMeshes();
-    this.buildEdgeConnections();
-    this.initializeAreaGroupNavMeshes();
-    this.initializeAreaGroupDistances();
-    this.initializeLegacyAreaConnections();
-    this.isLoaded = true;
+    this._links = [...data.links];
+
+    this._isLoaded = true;
   }
 
-  private initializeMapAreas() {
-    for (const [areaId, area] of Object.entries(this._map.areas)) {
-      const polygon = geometry.buildPolygonFromEdges(area.edges, this._map);
-      if (!polygon) {
-        console.error("failed to build polygon for area");
-        continue;
-      }
-
-      const expandedPolygon = geometry.expandPolygon(
-        polygon,
-        constants.DEFAULT_POLYGON_EXPANSION_DISTANCE
-      );
-      const triangles = geometry.triangulateArea(expandedPolygon);
-      if (!triangles) {
-        console.error("failed to triangulate area");
-        continue;
-      }
-      const mesh = geometry.createMeshFromTriangles(areaId, triangles);
-      if (!mesh) {
-        console.error("failed to create mesh for area");
-        continue;
-      }
-      this._areaMeshes.set(areaId, mesh);
-    }
+  load(data: FloorData) {
+    return this.loadMultifloor({
+      data: {
+        ["default-floor"]: data,
+      },
+      links: [],
+    });
   }
 
   private cleanUp() {
-    console.log("Cleaning up pathfinder");
-    this._adjacencies.clear();
-    this._edgeWeights.clear();
-    this._legacyNavMesh?.destroy();
-    this._legacyNavMesh = null;
-    this._legacyNavMeshQuery?.destroy();
-    this._legacyNavMeshQuery = null;
-    this._areaMeshes.forEach((mesh) => mesh.geometry.dispose());
-    this._areaMeshes.clear();
-    this._areaGroupNavMeshes.forEach((navMesh) => navMesh.destroy());
-    this._areaGroupNavMeshes.clear();
-    this._areaGroupNMQueries.forEach((query) => query.destroy());
-    this._areaGroupNMQueries.clear();
+    this._maps.clear();
   }
 
   setConfig(config: NavOptions) {
     this._config = { ...this._config, ...config };
   }
 
-  /**
-   * Find areas that share edges (are adjacent) and group them together
-   */
-  private buildAreaGroups(): void {
-    this._areaGroups.clear();
-
-    if (!this._map) return;
-
-    const areaIds = Object.keys(this._map.areas);
-    const visited = new Set<string>();
-    let groupId = 0;
-
-    for (const areaId of areaIds) {
-      if (visited.has(areaId)) continue;
-
-      // Start a new group with this area
-      const currentGroup: string[] = [areaId];
-      visited.add(areaId);
-
-      // Find all areas that share edges with any area in this group
-      let foundNewAreas = true;
-      while (foundNewAreas) {
-        foundNewAreas = false;
-
-        for (const groupAreaId of currentGroup) {
-          const adjacentAreas = this.findAdjacentAreas(groupAreaId);
-
-          for (const adjacentAreaId of adjacentAreas) {
-            if (!visited.has(adjacentAreaId)) {
-              currentGroup.push(adjacentAreaId);
-              visited.add(adjacentAreaId);
-              foundNewAreas = true;
-            }
-          }
-        }
-      }
-
-      // Store this group
-      const groupKey = `group_${groupId++}`;
-      this._areaGroups.set(groupKey, currentGroup);
-    }
-  }
-
-  /**
-   * Get the areaGroup that contains the given area
-   */
-  private getAreaGroupForArea(areaId: string): string | null {
-    for (const [groupId, areaIds] of this._areaGroups) {
-      if (areaIds.includes(areaId)) {
-        return groupId;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Check if an edge belongs to any areaGroup
-   */
-  private getAreaGroupsContainingEdge(edgeId: string): string[] {
-    const areaIds = graphUtils.getAreasContainingEdge(this._map, edgeId);
-    const groupIds = new Set<string>();
-    for (const areaId of areaIds) {
-      const groupId = this.getAreaGroupForArea(areaId);
-      if (groupId) {
-        groupIds.add(groupId);
-      }
-    }
-    return Array.from(groupIds);
-  }
-
-  /**
-   * Find areas that share at least one edge with the given area
-   */
-  private findAdjacentAreas(areaId: string): string[] {
-    if (!this._map) return [];
-
-    const area = this._map.areas[areaId];
-    if (!area) return [];
-
-    const adjacentAreas = new Set<string>();
-
-    // Check each edge in this area
-    for (const edgeId of area.edges) {
-      const edge = this._map.edges[edgeId];
-      if (!edge) continue;
-
-      // Find all areas that contain this edge
-      const areasContainingEdge = graphUtils.getAreasContainingEdge(
-        this._map,
-        edgeId
-      );
-
-      // Add all areas except the current one
-      for (const otherAreaId of areasContainingEdge) {
-        if (otherAreaId !== areaId) {
-          adjacentAreas.add(otherAreaId);
-        }
-      }
-    }
-
-    return Array.from(adjacentAreas);
-  }
-
-  private buildEdgeConnections() {
-    if (!this._map) return;
-
-    // Build connections and calculate weights
-    Object.entries(this._map.edges).forEach(([edgeId, edge]) => {
-      const fromPoint = this.getMapPointInternal(edge.from)!;
-      const toPoint = this.getMapPointInternal(edge.to)!;
-
-      if (!fromPoint || !toPoint) {
-        return;
-      }
-
-      // Check if this edge belongs to any areaGroup
-      const edgeAreaGroups = this.getAreaGroupsContainingEdge(edgeId);
-      const isAreaEdge = edgeAreaGroups.length > 0;
-
-      // Skip edges that belong to areaGroups - they'll be handled by exit-to-exit connections
-      if (isAreaEdge) {
-        return;
-      }
-
-      // Calculate edge weight (distance)
-      let weight = geometry.calculateDistance(fromPoint, toPoint);
-
-      // Apply weight multiplier if specified
-      const weightMultiplier = edge.weightMultiplier;
-      if (weightMultiplier !== undefined) {
-        weight *= weightMultiplier;
-      }
-
-      const doTo = edge.dir === undefined || edge.dir === 0 || edge.dir === 1;
-      const doFrom =
-        edge.dir === undefined || edge.dir === 0 || edge.dir === -1;
-
-      if (doTo) {
-        // One-way edge - only add from -> to connection
-        addAdjacency(
-          this._adjacencies,
-          this._edgeWeights,
-          edge.from,
-          edge.to,
-          false,
-          {
-            weight,
-            path: [fromPoint, toPoint],
-          }
-        );
-      }
-      if (doFrom) {
-        // One-way-reverse edge - only add to -> from connection
-        addAdjacency(
-          this._adjacencies,
-          this._edgeWeights,
-          edge.to,
-          edge.from,
-          false,
-          {
-            weight,
-            path: [toPoint, fromPoint],
-          }
-        );
-      }
-    });
-  }
-
   findPath(
-    from: THREE.Vector3Like,
-    to: THREE.Vector3Like
-  ): THREE.Vector3Like[] | null {
-    if (!this._map) {
+    from: V3,
+    to: V3,
+    fromFloorId: string,
+    toFloorId: string
+  ): PathPoint[] | null {
+    const fromFloor = this._maps.get(fromFloorId);
+    const toFloor = this._maps.get(toFloorId);
+    if (!fromFloor || !toFloor) {
       return null;
     }
-
-    const fromResult = this.getPathResult(from);
-    const toResult = this.getPathResult(to);
+    const fromResult = fromFloor.getPathResult(from);
+    const toResult = toFloor.getPathResult(to);
     if (!fromResult || !toResult) {
       return null;
     }
@@ -365,20 +103,27 @@ export class Pathfinder {
     }
 
     // Find the optimal path using Dijkstra with pre-computed area distances
-    const tempGraphResults = this.createTempGraph(fromResult, toResult);
-    const { tempAdjacencies, tempEdgeWeights } = tempGraphResults;
+    const tempGraphResults = this.createTempGraphs(
+      fromResult,
+      toResult,
+      fromFloor,
+      toFloor,
+      fromFloorId,
+      toFloorId
+    );
 
     // Merge temp graphs with static graphs for optimal performance
     const mergedGraphs = this.mergeTempWithStatic(
-      tempAdjacencies,
-      tempEdgeWeights
+      fromFloorId,
+      toFloorId,
+      tempGraphResults
     );
 
     let graphPath = this.dijkstraWithMergedGraph(
       mergedGraphs.mergedAdjacencies,
       mergedGraphs.mergedEdgeWeights,
-      constants.FROM_INTERMEDIATE,
-      constants.TO_INTERMEDIATE
+      pathfinding.getFloorItemKey(fromFloorId, constants.FROM_INTERMEDIATE),
+      pathfinding.getFloorItemKey(toFloorId, constants.TO_INTERMEDIATE)
     );
 
     if (!graphPath) {
@@ -387,46 +132,49 @@ export class Pathfinder {
     }
 
     // Convert to world coordinates
-    return this.convertGraphPathToWorldPath(
+    return this.convertToFinalPath(
       graphPath,
-      fromResult,
-      toResult,
       from,
       to,
-
-      tempEdgeWeights
+      mergedGraphs.mergedEdgeWeights,
+      fromFloorId,
+      toFloorId
     );
   }
 
-  private getPathResult(position: THREE.Vector3Like): PathResult | null {
-    const areaId = getNavmeshUnderPoint(position, this._areaGroupNMQueries);
-    if (areaId) {
-      return pathfinding.convertAreaGroupToPathResult(areaId, position);
-    }
-    const edge = getNearestPositionOnEdge(this._map, position);
-    const legacy = findClosestPoint(this._legacyNavMeshQuery, position);
-    return pathfinding.chooseClosestResult(edge, legacy);
-  }
-
-  private convertGraphPathToWorldPath(
+  private convertToFinalPath(
     graphPath: string[],
-    fromResult: any,
-    toResult: any,
-    from: THREE.Vector3Like,
-    to: THREE.Vector3Like,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>
-  ): THREE.Vector3Like[] {
-    const fullPath: THREE.Vector3Like[] = [from];
+    from: V3,
+    to: V3,
+    tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
+    fromFloorId: string,
+    toFloorId: string
+  ): PathPoint[] {
+    const fullPath: PathPoint[] = [
+      {
+        point: from,
+        fromPointId: "from",
+        toPointId: "from_intermediate",
+        floorId: fromFloorId,
+      },
+    ];
 
     for (let i = 0; i < graphPath.length - 1; i++) {
       const currentNode = graphPath[i];
       const nextNode = graphPath[i + 1];
+      const { floorId: currentFloorId, itemId: currentNodeId } =
+        pathfinding.getFloorAndItemFromKey(currentNode);
+      const { floorId: nextFloorId, itemId: nextNodeId } =
+        pathfinding.getFloorAndItemFromKey(nextNode);
 
-      if (nextNode) {
+      let currentFloor = this._maps.get(fromFloorId);
+
+      if (nextNodeId) {
         // Create path key using the same pattern for all nodes
-        const pathKey = createEdgeWeightKey(currentNode, nextNode);
-        const staticConnections = this._edgeWeights.get(pathKey);
-        const tempConnections = tempEdgeWeights.get(pathKey);
+        const pathKey = createEdgeWeightKey(currentNodeId, nextNodeId);
+        const floorPathKey = createEdgeWeightKey(currentNode, nextNode);
+        const staticConnections = currentFloor!.edgeWeights.get(pathKey);
+        const tempConnections = tempEdgeWeights.get(floorPathKey);
 
         let chosenStaticConnection: EdgeWeightInfo | null = null;
         let chosenTempConnection: EdgeWeightInfo | null = null;
@@ -452,28 +200,56 @@ export class Pathfinder {
           chosenConnection = chosenTempConnection;
         }
         if (chosenConnection) {
-          fullPath.push(...chosenConnection.path);
+          fullPath.push(
+            ...chosenConnection.path
+              .map((point, j) => {
+                if (
+                  j == chosenConnection.path.length - 1 &&
+                  i < graphPath.length - 2
+                )
+                  return null;
+                const p: PathPoint = {
+                  point,
+                  fromPointId: currentNodeId,
+                  toPointId: nextNodeId,
+                  floorId: currentFloorId,
+                };
+
+                if (nextFloorId !== currentFloorId) {
+                  p.toFloorId = nextFloorId;
+                  p.floorLink = this._links.find(
+                    (link) =>
+                      link.fromFloorId === currentFloorId &&
+                      link.toFloorId === nextFloorId &&
+                      ((link.fromPointId === currentNodeId &&
+                        link.toPointId === nextNodeId) ||
+                        (link.fromPointId === nextNodeId &&
+                          link.toPointId === currentNodeId))
+                  );
+                }
+
+                return p;
+              })
+              .filter((p) => p !== null)
+          );
           continue;
         }
       }
-
-      // Fallback: add single point based on node type
-      if (currentNode === constants.FROM_INTERMEDIATE) {
-        fullPath.push(fromResult.position);
-      } else if (currentNode === constants.TO_INTERMEDIATE) {
-        fullPath.push(toResult.position);
-      } else {
-        fullPath.push(this.getMapPointInternal(currentNode)!);
-      }
     }
 
-    fullPath.push(to);
+    fullPath.push({
+      point: to,
+      fromPointId: "to_intermediate",
+      toPointId: "to",
+      floorId: toFloorId,
+    });
     return fullPath;
   }
 
   private addIntermediateNodeToTempGraph(
     tempAdjacencies: Map<string, string[]>,
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
+    floor: FloorData,
     nodeId: string,
     node: PathResult
   ): void {
@@ -487,6 +263,7 @@ export class Pathfinder {
       this.addPointToAllExitPoints(
         tempAdjacencies,
         tempEdgeWeights,
+        floor,
         nodeId,
         node.position,
         areaGroupId
@@ -494,7 +271,7 @@ export class Pathfinder {
     } else {
       // Regular edge handling
       const edgeId = node.edgeId;
-      const fromEdge = this.getMapEdge(edgeId);
+      const fromEdge = floor.getGraphEdge(edgeId);
       if (!fromEdge) return;
       const dir = fromEdge.dir;
       const doTo = dir === undefined || dir === 0 || dir === 1;
@@ -502,13 +279,13 @@ export class Pathfinder {
 
       let weight = geometry.calculateDistance(
         node.position,
-        this.getMapPointInternal(node.toPointId)!
+        floor.getGraphPoint(node.toPointId)!
       );
       if (doTo) {
         // Bidirectional or undefined - add both directions
         let weight = geometry.calculateDistance(
           node.position,
-          this.getMapPointInternal(node.toPointId)!
+          floor.getGraphPoint(node.toPointId)!
         );
         addAdjacency(
           tempAdjacencies,
@@ -518,14 +295,14 @@ export class Pathfinder {
           true,
           {
             weight,
-            path: [node.position, this.getMapPointInternal(node.toPointId)!],
+            path: [node.position, floor.getGraphPoint(node.toPointId)!],
           }
         );
       }
       if (doFrom) {
         let weight = geometry.calculateDistance(
           node.position,
-          this.getMapPointInternal(node.fromPointId)!
+          floor.getGraphPoint(node.fromPointId)!
         );
         addAdjacency(
           tempAdjacencies,
@@ -535,22 +312,22 @@ export class Pathfinder {
           true,
           {
             weight,
-            path: [node.position, this.getMapPointInternal(node.fromPointId)!],
+            path: [node.position, floor.getGraphPoint(node.fromPointId)!],
           }
         );
       }
     }
 
-    const fromEdgeAreaGroups = this.getAreaGroupsContainingEdge(
+    const fromEdgeAreaGroups = floor.getGroupsWithEdge(
       node.type === "edge" ? node.edgeId : ""
     );
     const fromIsAreaEdge = fromEdgeAreaGroups.length > 0;
 
     if (isLegacyEdge) {
-      const legacyNavMeshQuery = this._legacyNavMeshQuery;
+      const legacyNavMeshQuery = floor.getLegacyNavMeshQuery();
       if (legacyNavMeshQuery) {
         // Find all graph points that intersect with the legacy NavMesh
-        Object.entries(this._map.points).forEach(([pointId, point]) => {
+        Object.entries(floor.getPoints()).forEach(([pointId, point]) => {
           if (recastUtils.isPointOnLegacyNavMesh(point, legacyNavMeshQuery)) {
             // Connect to all graph points that intersect with legacy NavMesh
             computeNavMeshPathAndConnect(
@@ -571,6 +348,7 @@ export class Pathfinder {
       this.addPointToAllExitPoints(
         tempAdjacencies,
         tempEdgeWeights,
+        floor,
         nodeId,
         node.position,
         areaGroupId
@@ -582,52 +360,171 @@ export class Pathfinder {
    * Merge temporary graphs with static graphs for optimal Dijkstra performance
    */
   private mergeTempWithStatic(
-    tempAdjacencies: Map<string, string[]>,
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>
+    fromFloorId: string,
+    toFloorId: string,
+    tempGraphResults: {
+      fromAdjacencies: Map<string, string[]>;
+      fromEdgeWeights: Map<string, EdgeWeightInfo[]>;
+      toAdjacencies: Map<string, string[]>;
+      toEdgeWeights: Map<string, EdgeWeightInfo[]>;
+    }
   ): {
     mergedAdjacencies: Map<string, string[]>;
     mergedEdgeWeights: Map<string, EdgeWeightInfo[]>;
   } {
     // Start with copies of the static graphs
-    const mergedAdjacencies = new Map(this._adjacencies);
-    const mergedEdgeWeights = new Map(this._edgeWeights);
+    const mergedAdjacencies = new Map<string, string[]>();
+    const mergedEdgeWeights = new Map<string, EdgeWeightInfo[]>();
+
+    for (const [floorId, floorData] of this._maps) {
+      floorData.adjacencies.forEach((neighbors, nodeId) => {
+        const floorNodeId = pathfinding.getFloorItemKey(floorId, nodeId);
+        const mergedNeighbors = neighbors.map((neighbor) =>
+          pathfinding.getFloorItemKey(floorId, neighbor)
+        );
+        const existing = mergedAdjacencies.get(floorNodeId) || [];
+        mergedAdjacencies.set(floorNodeId, [...existing, ...mergedNeighbors]);
+      });
+
+      floorData.edgeWeights.forEach((weights, key) => {
+        const keySplit = key.split("-");
+        const floorKey = createEdgeWeightKey(
+          pathfinding.getFloorItemKey(floorId, keySplit[0]),
+          pathfinding.getFloorItemKey(floorId, keySplit[1])
+        );
+        const existing = mergedEdgeWeights.get(floorKey) || [];
+        mergedEdgeWeights.set(floorKey, [...existing, ...weights]);
+      });
+    }
 
     // Merge temp adjacencies
-    tempAdjacencies.forEach((neighbors, nodeId) => {
-      const existing = mergedAdjacencies.get(nodeId) || [];
-      mergedAdjacencies.set(nodeId, [...existing, ...neighbors]);
+    tempGraphResults.fromAdjacencies.forEach((neighbors, nodeId) => {
+      const floorNodeId = pathfinding.getFloorItemKey(fromFloorId, nodeId);
+      const mergedNeighbors = neighbors.map((neighbor) =>
+        pathfinding.getFloorItemKey(fromFloorId, neighbor)
+      );
+      const existing = mergedAdjacencies.get(floorNodeId) || [];
+      mergedAdjacencies.set(floorNodeId, [...existing, ...mergedNeighbors]);
     });
 
-    // Merge temp edge weights
-    tempEdgeWeights.forEach((weights, key) => {
-      const existing = mergedEdgeWeights.get(key) || [];
-      mergedEdgeWeights.set(key, [...existing, ...weights]);
+    tempGraphResults.toAdjacencies.forEach((neighbors, nodeId) => {
+      const floorNodeId = pathfinding.getFloorItemKey(toFloorId, nodeId);
+      const mergedNeighbors = neighbors.map((neighbor) =>
+        pathfinding.getFloorItemKey(toFloorId, neighbor)
+      );
+      const existing = mergedAdjacencies.get(floorNodeId) || [];
+      mergedAdjacencies.set(floorNodeId, [...existing, ...mergedNeighbors]);
+    });
+
+    tempGraphResults.fromEdgeWeights.forEach((weights, key) => {
+      const keySplit = key.split("-");
+      const floorKey = createEdgeWeightKey(
+        pathfinding.getFloorItemKey(fromFloorId, keySplit[0]),
+        pathfinding.getFloorItemKey(fromFloorId, keySplit[1])
+      );
+      const existing = mergedEdgeWeights.get(floorKey) || [];
+      mergedEdgeWeights.set(floorKey, [...existing, ...weights]);
+    });
+
+    tempGraphResults.toEdgeWeights.forEach((weights, key) => {
+      const keySplit = key.split("-");
+      const floorKey = createEdgeWeightKey(
+        pathfinding.getFloorItemKey(toFloorId, keySplit[0]),
+        pathfinding.getFloorItemKey(toFloorId, keySplit[1])
+      );
+      const existing = mergedEdgeWeights.get(floorKey) || [];
+      mergedEdgeWeights.set(floorKey, [...existing, ...weights]);
+    });
+
+    //handle floor links
+    this._links.forEach((link) => {
+      const { fromFloorId, toFloorId, fromPointId, toPointId } = link;
+      const fromKey = pathfinding.getFloorItemKey(fromFloorId, fromPointId);
+      const toKey = pathfinding.getFloorItemKey(toFloorId, toPointId);
+
+      //add adjacencies
+      const existingAdjacencyFromTo = mergedAdjacencies.get(fromKey) || [];
+      mergedAdjacencies.set(fromKey, [...existingAdjacencyFromTo, toKey]);
+      const existingAdjacencyToFrom = mergedAdjacencies.get(toKey) || [];
+      mergedAdjacencies.set(toKey, [...existingAdjacencyToFrom, fromKey]);
+
+      //add edge weights
+      const edgeWeightKeyFromTo = createEdgeWeightKey(fromKey, toKey);
+      const edgeWeightKeyToFrom = createEdgeWeightKey(toKey, fromKey);
+      const fromFloor = this._maps.get(fromFloorId);
+      const toFloor = this._maps.get(toFloorId);
+      const edgeWeightFT = {
+        weight: link.weight,
+        path: [
+          fromFloor!.getGraphPoint(fromPointId)!,
+          fromFloor!.getGraphPoint(toPointId)!,
+        ],
+      };
+      const edgeWeightTF = {
+        weight: link.weight,
+        path: [
+          toFloor!.getGraphPoint(toPointId)!,
+          toFloor!.getGraphPoint(fromPointId)!,
+        ],
+      };
+
+      mergedEdgeWeights.set(edgeWeightKeyFromTo, [
+        edgeWeightFT,
+        {
+          weight: link.weight,
+          path: [
+            fromFloor?.getGraphPoint(fromPointId)!,
+            fromFloor?.getGraphPoint(toPointId)!,
+          ],
+        },
+      ]);
+
+      mergedEdgeWeights.set(edgeWeightKeyToFrom, [
+        edgeWeightTF,
+        {
+          weight: link.weight,
+          path: [
+            toFloor?.getGraphPoint(toPointId)!,
+            toFloor?.getGraphPoint(fromPointId)!,
+          ],
+        },
+      ]);
     });
 
     return { mergedAdjacencies, mergedEdgeWeights };
   }
 
-  private createTempGraph(
+  private createTempGraphs(
     fromResult: PathResult,
-    toResult: PathResult
+    toResult: PathResult,
+    fromFloor: FloorData,
+    toFloor: FloorData,
+    fromFloorId: string,
+    toFloorId: string
   ): {
-    tempAdjacencies: Map<string, string[]>;
-    tempEdgeWeights: Map<string, EdgeWeightInfo[]>;
+    fromAdjacencies: Map<string, string[]>;
+    fromEdgeWeights: Map<string, EdgeWeightInfo[]>;
+    toAdjacencies: Map<string, string[]>;
+    toEdgeWeights: Map<string, EdgeWeightInfo[]>;
   } {
     // Create a copy of the adjacency list
-    const tempAdjacencies = new Map<string, string[]>();
-    const tempEdgeWeights = new Map<string, EdgeWeightInfo[]>();
+    const fromAdjacencies = new Map<string, string[]>();
+    const fromEdgeWeights = new Map<string, EdgeWeightInfo[]>();
+    const toAdjacencies = new Map<string, string[]>();
+    const toEdgeWeights = new Map<string, EdgeWeightInfo[]>();
 
     this.addIntermediateNodeToTempGraph(
-      tempAdjacencies,
-      tempEdgeWeights,
+      fromAdjacencies,
+      fromEdgeWeights,
+      fromFloor,
       constants.FROM_INTERMEDIATE,
       fromResult
     );
 
     this.addIntermediateNodeToTempGraph(
-      tempAdjacencies,
-      tempEdgeWeights,
+      toAdjacencies,
+      toEdgeWeights,
+      toFloor,
       constants.TO_INTERMEDIATE,
       toResult
     );
@@ -642,8 +539,8 @@ export class Pathfinder {
     const fromEdgeId = fromResult.type === "edge" ? fromResult.edgeId : "";
     const toEdgeId = toResult.type === "edge" ? toResult.edgeId : "";
 
-    const fromEdgeAreaGroups = this.getAreaGroupsContainingEdge(fromEdgeId);
-    const toEdgeAreaGroups = this.getAreaGroupsContainingEdge(toEdgeId);
+    const fromEdgeAreaGroups = fromFloor.getGroupsWithEdge(fromEdgeId);
+    const toEdgeAreaGroups = toFloor.getGroupsWithEdge(toEdgeId);
 
     // Add connections from existing nodes to intermediate points
     const fromIsAreaEdge = fromEdgeAreaGroups.length > 0;
@@ -658,41 +555,45 @@ export class Pathfinder {
       toIsAreaGroupEdge &&
       fromResult.type === "areaGroup" &&
       toResult.type === "areaGroup" &&
+      fromFloorId === toFloorId &&
       fromResult.areaGroupId === toResult.areaGroupId
     ) {
       const areaGroupId = fromResult.areaGroupId;
-      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
+      directNavMeshQuery = fromFloor.getAreaGroupNMQuery(areaGroupId) || null;
     }
     // Mixed case: from off-mesh, to in areaGroup, but same areaGroup
     else if (
       fromResult.type === "edge" &&
       toResult.type === "areaGroup" &&
+      fromFloorId === toFloorId &&
       fromEdgeAreaGroups.includes(toResult.areaGroupId)
     ) {
       const areaGroupId = toResult.areaGroupId;
-      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
+      directNavMeshQuery = toFloor.getAreaGroupNMQuery(areaGroupId) || null;
     }
     // Mixed case: to off-mesh, from in areaGroup, but same areaGroup
     else if (
       toResult.type === "edge" &&
       fromResult.type === "areaGroup" &&
+      fromFloorId === toFloorId &&
       toEdgeAreaGroups.includes(fromResult.areaGroupId)
     ) {
       const areaGroupId = fromResult.areaGroupId;
-      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
+      directNavMeshQuery = fromFloor.getAreaGroupNMQuery(areaGroupId) || null;
     }
     // Both 'from' and 'to' are on legacy NavMesh
-    else if (fromIsLegacyEdge && toIsLegacyEdge) {
-      directNavMeshQuery = this._legacyNavMeshQuery;
+    else if (fromIsLegacyEdge && toIsLegacyEdge && fromFloorId === toFloorId) {
+      directNavMeshQuery = fromFloor.getLegacyNavMeshQuery() || null;
     }
     // Both 'from' and 'to' are in the same areaGroup (regular edge case)
     else if (
       fromIsAreaEdge &&
       toIsAreaEdge &&
+      fromFloorId === toFloorId &&
       fromEdgeAreaGroups[0] === toEdgeAreaGroups[0]
     ) {
       const areaGroupId = fromEdgeAreaGroups[0];
-      directNavMeshQuery = this._areaGroupNMQueries.get(areaGroupId) || null;
+      directNavMeshQuery = fromFloor.getAreaGroupNMQuery(areaGroupId) || null;
     }
 
     // Execute direct connection if we found a suitable NavMesh query
@@ -703,37 +604,40 @@ export class Pathfinder {
         toResult.position,
         constants.FROM_INTERMEDIATE,
         constants.TO_INTERMEDIATE,
-        tempAdjacencies,
-        tempEdgeWeights
+        fromAdjacencies,
+        fromEdgeWeights
       );
     }
 
     return {
-      tempAdjacencies,
-      tempEdgeWeights,
+      fromAdjacencies,
+      fromEdgeWeights,
+      toAdjacencies,
+      toEdgeWeights,
     };
   }
 
   private addPointToAllExitPoints(
     tempAdjacencies: Map<string, string[]>,
     tempEdgeWeights: Map<string, EdgeWeightInfo[]>,
+    floor: FloorData,
     tempPointId: string,
-    position: THREE.Vector3Like,
+    position: V3,
     areaGroupId: string
   ): void {
     if (areaGroupId) {
-      const navMeshQuery = this._areaGroupNMQueries.get(areaGroupId);
+      const navMeshQuery = floor.getAreaGroupNMQuery(areaGroupId);
       // Get true exit points for this areaGroup
       const exitPoints = graphUtils.findExitPointsForGroup(
-        this._map,
+        floor.graph,
         areaGroupId,
-        this._areaGroups.get(areaGroupId) || [],
-        this._legacyNavMeshQuery
+        floor.getAreaGroupAreas(areaGroupId) || [],
+        floor.getLegacyNavMeshQuery()
       );
 
       if (navMeshQuery) {
         exitPoints.forEach((pointId) => {
-          const exitPosition = this.getMapPointInternal(pointId);
+          const exitPosition = floor.getGraphPoint(pointId);
           if (exitPosition) {
             try {
               computeNavMeshPathAndConnect(
@@ -820,153 +724,5 @@ export class Pathfinder {
     }
 
     return null;
-  }
-
-  private initializeLegacyAreaNavMeshes() {
-    if (!this._map) return;
-
-    const legacyMeshes = this._legacyMeshes;
-    if (legacyMeshes.length === 0) {
-      console.log(
-        "No legacy navmeshes found, skipping legacy NavMesh creation"
-      );
-      return;
-    }
-
-    let nmResult;
-    try {
-      nmResult = threeToSoloNavMesh(
-        legacyMeshes,
-        constants.DEFAULT_NAVMESH_PARAMS
-      );
-    } catch (error) {
-      console.error("Error creating legacy NavMesh:", error);
-      return;
-    }
-
-    if (!nmResult.success || !nmResult.navMesh) {
-      console.error("Failed to create nav mesh for legacy areas:", nmResult);
-      return;
-    }
-
-    this._legacyNavMesh = nmResult.navMesh;
-    this._legacyNavMeshQuery = new NavMeshQuery(nmResult.navMesh);
-  }
-
-  private initializeLegacyAreaConnections() {
-    if (!this._map) {
-      return;
-    }
-
-    const lnmQuery = this._legacyNavMeshQuery;
-    if (!lnmQuery) {
-      return;
-    }
-
-    // Find all existing graph points that intersect with the legacy NavMesh
-    const intersectingPoints: string[] = [];
-
-    Object.entries(this._map.points).forEach(([pointId, point]) => {
-      if (recastUtils.isPointOnLegacyNavMesh(point, lnmQuery)) {
-        intersectingPoints.push(pointId);
-      }
-    });
-
-    // Add direct NavMesh connections between all pairs of intersecting points
-    for (let i = 0; i < intersectingPoints.length; i++) {
-      for (let j = i + 1; j < intersectingPoints.length; j++) {
-        const fromId = intersectingPoints[i];
-        const toId = intersectingPoints[j];
-
-        const fromPoint = this._map.points[fromId];
-        const toPoint = this._map.points[toId];
-
-        computeNavMeshPathAndConnect(
-          lnmQuery,
-          fromPoint,
-          toPoint,
-          fromId,
-          toId,
-          this._adjacencies,
-          this._edgeWeights
-        );
-      }
-    }
-  }
-
-  private initializeAreaGroupNavMeshes() {
-    if (!this._map) return;
-
-    for (const [groupId, areaIds] of this._areaGroups) {
-      // Collect all area meshes in this group
-      const areaMeshes: THREE.Mesh[] = [];
-
-      for (const areaId of areaIds) {
-        const areaMesh = this._areaMeshes.get(areaId);
-        if (areaMesh) {
-          areaMeshes.push(areaMesh);
-        }
-      }
-
-      if (areaMeshes.length === 0) continue;
-
-      try {
-        const nmResult = threeToSoloNavMesh(
-          areaMeshes,
-          constants.DEFAULT_NAVMESH_PARAMS
-        );
-        if (nmResult.navMesh) {
-          this._areaGroupNavMeshes.set(groupId, nmResult.navMesh);
-
-          const navMeshQuery = new NavMeshQuery(nmResult.navMesh);
-          this._areaGroupNMQueries.set(groupId, navMeshQuery);
-        }
-      } catch (error) {
-        console.error(
-          `Failed to build NavMesh for areaGroup ${groupId}:`,
-          error
-        );
-      }
-    }
-  }
-
-  private initializeAreaGroupDistances() {
-    if (!this._map) return;
-
-    for (const [groupId, areaIds] of this._areaGroups) {
-      const navMesh = this._areaGroupNMQueries.get(groupId);
-      if (!navMesh) continue;
-
-      // Get true exit points for this areaGroup
-      const allExitPoints = graphUtils.findExitPointsForGroup(
-        this._map,
-        groupId,
-        areaIds,
-        this._legacyNavMeshQuery
-      );
-
-      // Pre-compute distances between all pairs of exit points in this areaGroup
-      for (let i = 0; i < allExitPoints.length; i++) {
-        for (let j = i + 1; j < allExitPoints.length; j++) {
-          const fromPointId = allExitPoints[i];
-          const toPointId = allExitPoints[j];
-
-          const fromPoint = this.getMapPointInternal(fromPointId)!;
-          const toPoint = this.getMapPointInternal(toPointId)!;
-
-          if (fromPoint && toPoint) {
-            computeNavMeshPathAndConnect(
-              navMesh,
-              fromPoint,
-              toPoint,
-              fromPointId,
-              toPointId,
-              this._adjacencies,
-              this._edgeWeights
-            );
-          }
-        }
-      }
-    }
   }
 }

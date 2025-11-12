@@ -1,12 +1,14 @@
-import * as THREE from "three";
 import * as geometry from "./GeometryUtils";
 import * as constants from "./Constants";
-import { NavMap, EdgeWeightInfo } from "./NavgraphTypes";
-import { NavMeshQuery } from "recast-navigation";
+import { NavMap, EdgeWeightInfo, ReadOnlyNavMap, V3 } from "./NavgraphTypes";
+import { NavMeshQuery } from "@recast-navigation/core";
 import * as recastUtils from "./RecastUtils";
 import { createEdgeWeightKey } from "./Constants";
 
-export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
+export function getAreasContainingEdge(
+  map: ReadOnlyNavMap,
+  edgeId: string
+): string[] {
   if (!map) return [];
 
   return Object.entries(map.areas)
@@ -15,7 +17,7 @@ export function getAreasContainingEdge(map: NavMap, edgeId: string): string[] {
 }
 
 export function findExitPointsForGroup(
-  map: NavMap,
+  map: ReadOnlyNavMap,
   areaGroupId: string,
   areaIds: string[],
   legacyNavMeshQuery?: NavMeshQuery | null
@@ -95,15 +97,15 @@ export function getEdgeWeight(
 
 export function getNearestPositionOnEdge(
   map: NavMap,
-  position: THREE.Vector3Like
+  position: V3
 ): {
-  position: THREE.Vector3Like;
+  position: V3;
   edgeId: string;
   fromPointId: string;
   toPointId: string;
   distance: number;
 } | null {
-  let nearestPosition: THREE.Vector3Like | null = null;
+  let nearestPosition: V3 | null = null;
   let nearestEdgeId: string | null = null;
   let nearestFromPointId: string | null = null;
   let nearestToPointId: string | null = null;
@@ -167,7 +169,7 @@ export function addAdjacency(
     //use recursion to add the neighbor to the adjacency list
     addAdjacency(adjacencyList, edgeWeights, neighborId, nodeId, false, {
       weight: weightInfo.weight,
-      path: weightInfo.path.toReversed(),
+      path: [...weightInfo.path].reverse(),
     });
   }
 }
@@ -177,8 +179,8 @@ export function addAdjacency(
  */
 export function computeNavMeshPathAndConnect(
   navMeshQuery: NavMeshQuery,
-  fromPoint: THREE.Vector3Like,
-  toPoint: THREE.Vector3Like,
+  fromPoint: V3,
+  toPoint: V3,
   fromId: string,
   toId: string,
   adjacencyList: Map<string, string[]>,
