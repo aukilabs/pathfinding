@@ -1,7 +1,6 @@
 import { NavMeshQuery } from "@recast-navigation/core";
 import * as constants from "./Constants";
-import { V3 } from "./NavgraphTypes";
-import { calculateDistance } from "./GeometryUtils";
+import { V3, geometry } from "@auki/navgraph";
 
 export function getNavmeshUnderPoint(
   point: V3,
@@ -62,7 +61,7 @@ export function findClosestPoint(
     });
 
     if (result.success && result.point) {
-      const distance = calculateDistance(position, result.point);
+      const distance = geometry.calculateDistance(position, result.point);
 
       return {
         position: result.point,

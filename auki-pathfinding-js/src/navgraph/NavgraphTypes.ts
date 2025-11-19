@@ -1,17 +1,4 @@
-export type V3 = { x: number; y: number; z: number };
-
-export type EdgeDirection = 1 | 0 | -1 | undefined;
-export type Point = V3;
-export type Edge = {
-  from: string;
-  to: string;
-  dir?: EdgeDirection;
-  weightMultiplier?: number; // Optional weight multiplier (default: 1.0)
-};
-export type Area = { edges: string[] };
-export type Points = Record<string, Point>;
-export type Edges = Record<string, Edge>;
-export type Areas = Record<string, Area>;
+import { Edge, EdgeDirection, NavMap, Point, V3 } from "@auki/navgraph";
 
 export type ReadOnlyPoints = Readonly<{
   [key: string]: Readonly<Point>;
@@ -24,7 +11,6 @@ export type ReadOnlyEdges = Readonly<{
 export type ReadOnlyAreas = Readonly<{
   [key: string]: Readonly<{ edges: Readonly<string[]> }>;
 }>;
-export type NavMap = { points: Points; edges: Edges; areas: Areas };
 export type ReadOnlyNavMap = Readonly<{
   points: ReadOnlyPoints;
   edges: ReadOnlyEdges;
@@ -93,9 +79,4 @@ export type PathPoint = {
   floorId: string;
   toFloorId?: string;
   floorLink?: InterFloorLink;
-};
-
-export type NavmeshGeometry = {
-  positions: number[];
-  indices: number[];
 };

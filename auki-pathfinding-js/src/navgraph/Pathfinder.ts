@@ -4,9 +4,8 @@ import {
   PathResult,
   InterFloorLink,
   PathPoint,
-  V3,
 } from "./NavgraphTypes";
-import * as geometry from "./GeometryUtils";
+import { geometry, V3 } from "@auki/navgraph";
 import * as graphUtils from "./GraphUtils";
 import * as recastUtils from "./RecastUtils";
 import * as pathfinding from "./PathfindingUtils";

@@ -1,6 +1,7 @@
-import * as geometry from "./GeometryUtils";
+import { geometry } from "@auki/navgraph";
 import * as constants from "./Constants";
-import { NavMap, EdgeWeightInfo, ReadOnlyNavMap, V3 } from "./NavgraphTypes";
+import { EdgeWeightInfo, ReadOnlyNavMap } from "./NavgraphTypes";
+import { NavMap, V3 } from "@auki/navgraph";
 import { NavMeshQuery } from "@recast-navigation/core";
 import * as recastUtils from "./RecastUtils";
 import { createEdgeWeightKey } from "./Constants";

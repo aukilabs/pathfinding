@@ -3,8 +3,8 @@ import {
   EdgePathResult,
   LegacyPathResult,
   AreaGroupPathResult,
-  V3,
 } from "./NavgraphTypes";
+import { V3 } from "@auki/navgraph";
 
 export function getFloorItemKey(floorId: string, itemId: string) {
   return `${floorId}/${itemId}`;

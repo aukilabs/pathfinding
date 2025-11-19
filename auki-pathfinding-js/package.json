@@ -1,6 +1,6 @@
 {
   "name": "@auki/pathfinding",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Hybrid pathfinding library combining navigation graphs with Recast/Detour NavMeshes",
   "keywords": [
     "pathfinding",
@@ -29,12 +29,10 @@
     "local": "npm run build && npm pack && mv auki-pathfinding-*.tgz ../test-web-wasm/auki-pathfinding.tgz"
   },
   "dependencies": {
-    "earcut": "^3.0.2",
+    "@auki/navgraph": "^0.1.0",
     "recast-navigation": "^0.43.0"
   },
   "devDependencies": {
-    "@types/earcut": "^3.0.0",
-    "@webgpu/types": "^0.1.66",
     "typescript": "^5.9.3"
   },
   "files": [

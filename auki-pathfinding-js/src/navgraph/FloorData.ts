@@ -1,15 +1,13 @@
 import { NavMesh, NavMeshQuery } from "@recast-navigation/core";
+import { EdgeWeightInfo, PathResult, ReadOnlyNavMap } from "./NavgraphTypes";
 import {
   Edge,
-  EdgeWeightInfo,
   NavMap,
-  NavmeshGeometry,
-  PathResult,
+  MeshGeometry,
   Point,
-  ReadOnlyNavMap,
   V3,
-} from "./NavgraphTypes";
-import * as geometry from "./GeometryUtils";
+  geometry,
+} from "@auki/navgraph";
 import * as constants from "./Constants";
 import * as recastUtils from "./RecastUtils";
 import * as graphUtils from "./GraphUtils";
@@ -27,13 +25,13 @@ export class FloorData {
   private _graph: NavMap;
 
   //caches for graph areas
-  private _areaMeshes: Map<string, NavmeshGeometry> = new Map();
+  private _areaMeshes: Map<string, MeshGeometry> = new Map();
   private _areaGroups: Map<string, string[]> = new Map(); // areaGroupId -> areaIds[]
   private _areaGroupNavMeshes: Map<string, NavMesh> = new Map(); // Cache navmeshes for areaGroups
   private _areaGroupNMQueries: Map<string, NavMeshQuery> = new Map(); // Cache navmeshes for areaGroups
 
   //navmesh geometry
-  private _legacyMeshes: NavmeshGeometry[] = [];
+  private _legacyMeshes: MeshGeometry[] = [];
   private _legacyNavMesh: NavMesh | null = null;
   private _legacyNavMeshQuery: NavMeshQuery | null = null;
 
@@ -64,11 +62,11 @@ export class FloorData {
     return this._graph.points;
   }
 
-  getAreaMeshes(): ReadonlyMap<string, NavmeshGeometry> {
+  getAreaMeshes(): ReadonlyMap<string, MeshGeometry> {
     return this._areaMeshes;
   }
 
-  getLegacyMeshes(): readonly NavmeshGeometry[] {
+  getLegacyMeshes(): readonly MeshGeometry[] {
     return this._legacyMeshes;
   }
 
@@ -91,7 +89,7 @@ export class FloorData {
     return this._areaGroupNMQueries.get(areaGroupId) || null;
   }
 
-  constructor(graph: NavMap, navmeshGeometry: NavmeshGeometry[]) {
+  constructor(graph: NavMap, navmeshGeometry: MeshGeometry[]) {
     this._graph = graph;
     this._legacyMeshes = navmeshGeometry;
 
@@ -255,7 +253,7 @@ export class FloorData {
 
     for (const [groupId, areaIds] of this._areaGroups) {
       // Collect all area meshes in this group
-      const areaMeshes: NavmeshGeometry[] = [];
+      const areaMeshes: MeshGeometry[] = [];
 
       for (const areaId of areaIds) {
         const areaMesh = this._areaMeshes.get(areaId);
