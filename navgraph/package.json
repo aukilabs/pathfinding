@@ -1,0 +1,40 @@
+{
+  "name": "@auki/navgraph",
+  "version": "0.1.0",
+  "description": "Navigation graph data types and management",
+  "keywords": [
+    "navigation",
+    "graph",
+    "pathfinding"
+  ],
+  "author": "Jason Yankowski",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aukilabs/hybrid-pathfinding.git"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/earcut": "^3.0.0",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "earcut": "^3.0.2"
+  }
+}
