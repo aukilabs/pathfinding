@@ -1,6 +1,6 @@
 {
   "name": "@auki/pathfinding",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Hybrid pathfinding library combining navigation graphs with Recast/Detour NavMeshes",
   "keywords": [
     "pathfinding",
